@@ -732,13 +732,13 @@ void Transforms()
     }
   }
 
-  Iq_SP += muziek_gain * muziek[ (curloop / (50 / Ts)) % (sizeof(muziek) / 4) ];
+  Iq_SP += muziek_gain * muziek[ (curloop / (50 / (int)Ts)) % (sizeof(muziek) / 4) ];
   Iq_SP += dist * Iq_distgain;
 
   Id_SP = Id_offset_SP;
   Id_SP += dist * Id_distgain;
 
-  Iq_SP2 += muziek_gain * muziek[ (curloop / (50 / Ts)) % (sizeof(muziek) / 4) ];
+  Iq_SP2 += muziek_gain * muziek[ (curloop / (50 / (int)Ts)) % (sizeof(muziek) / 4) ];
   Iq_SP2 += dist * Iq_distgain;
 
   Id_SP2 = Id_offset_SP2;
@@ -932,7 +932,7 @@ void Transforms()
     Vd2 += VdFF2;
   }
 
-  Vq2 += muziek_gain_V * muziek[ (curloop / (50 / Ts)) % (sizeof(muziek) / 4) ];
+  Vq2 += muziek_gain_V * muziek[ (curloop / (50 / (int)Ts)) % (sizeof(muziek) / 4) ];
 
   // Inverse park transform
   Valpha2 = co2 * Vd2 - si2 * Vq2;

@@ -1,5 +1,5 @@
 #define f_pwm 30e3
-const int Ts = 1e6/(2*f_pwm); //Ts in microseconds
+const float Ts = 1e6/(2*f_pwm); //Ts in microseconds
 
 #define FTM0_CH0_PIN 22
 #define FTM0_CH1_PIN 23
