@@ -217,9 +217,13 @@ unsigned int useIlowpass = 0;
 
 float Vout;
 float fIntCur = 700;
-float Icontgain = 0;
-Integrator *integrator_Id = new Integrator( fIntCur , 1 / T);
-Integrator *integrator_Iq = new Integrator( fIntCur , 1 / T);
+
+float Kp_iq = 0;
+float Kp_id = 0;
+float Ki_iq = 0; //Series PI controller. Ki = w0 of zero. Choose this to be R / Lq.
+float Ki_id = 0; //Series PI controller. Ki = w0 of zero. Choose this to be R / Ld.
+float vq_int_state;
+float vd_int_state;
 
 float Vout2;
 float fIntCur2 = 700;
