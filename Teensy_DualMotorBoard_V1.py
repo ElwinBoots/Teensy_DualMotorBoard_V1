@@ -998,29 +998,19 @@ plt.show()
 #%% 
 setpar('VSP' , 1)
 #%% 
-setpar('VSP' , 2)
-#%% 
-setpar('VSP' , -1)
-#%% 
 setpar('VSP' , 0)
-
-#%% Ride the wave
-setpar('ridethewave' , 1)
 
 #%% 
 ser.write( b'o' + struct.pack('f',  0) ) # Restart controller
-
-
 
 #%% 
 setpar( 'Iq_offset_SP' , 10)
 
 #%% 
-setpar( 'Iq_offset_SP' , 3)
+setpar( 'Iq_offset_SP' , 5)
 
 #%% 
 setpar('anglechoice' ,1)
-
 
 #%% Current plant FRF measurement PRBS
 ser = start( ser )
@@ -1302,8 +1292,6 @@ setpar('hfi_V' , hfi_v)
 setpar('hfi_on' , 1)
 
 setpar( 'hfi_useforfeedback' , 1)
-
-setpar( 'Iq_offset_SP' , 3)
 
 #%%  
 setpar( 'Kp' , 0)
@@ -1720,7 +1708,7 @@ setpar('muziek_gain_V' , 0)
 
 #%% Music on
 setpar( 'offsetVel' , 2*np.pi)
-setpar( 'muziek_gain' , 10) # music current
+setpar( 'muziek_gain' , 8) # music current
 #%% Music off
 setpar( 'offsetVel' , 0.0*np.pi)
 setpar( 'muziek_gain' , 0) # music current

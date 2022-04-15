@@ -6,6 +6,12 @@ const float Ts = 1e6/(2*f_pwm); //Ts in microseconds
 #define UTILS_IS_NAN(x)   ((x) != (x))
 #define UTILS_NAN_ZERO(x) (x = UTILS_IS_NAN(x) ? 0.0 : x)
 
+#define chopperpin 33 //Digital output for chopper resistor
+#define debugpin 32
+#define engate 34
+//#define PRREG(x) Serial.print(#x" 0x"); Serial.println(x,HEX)
+#define SSpin 35
+
 int anglechoice = 0;
 float advancefactor;
 
@@ -124,8 +130,8 @@ int incomingByte;
 int encoderPos1 = 0;
 int encoderPos2 = 0;
 
-bool IndexFound1 = 0;
-bool IndexFound2 = 0;
+unsigned int IndexFound1 = 0;
+unsigned int IndexFound2 = 0;
 
 bool OutputOn = true;
 
@@ -236,8 +242,12 @@ float sens4_calib;
 
 float sensBus;
 
+float Busadc2Vbus = 1 / 4095.0 * 3.3 * ((68.3 + 5.05) / 5.05); //5.1 changed to 5.05 to improve accuracy. May differ board to board.
+int n_senscalib;
+bool setupready;
+
 //fast 180 deg:
-MotionProfile2 *SPprofile = new MotionProfile2( 0 , 0.000500000000000000 , 0.0193000000000000 , 0 , 3.14159265358979 , 157.079632679490 , 7853.98163397448 , 15632147.3532855 , T );
+MotionProfile *SPprofile = new MotionProfile( 0 , 0.000500000000000000 , 0.0193000000000000 , 0 , 3.14159265358979 , 157.079632679490 , 7853.98163397448 , 15632147.3532855 , T );
 
 int SP_input_status = 0;
 int spGO = 0;
@@ -353,8 +363,6 @@ float hfi_curortprev;
 float hfi_gain = 100 * 2 * M_PI;
 float hfi_pgain = 0;
 float hfi_curangleest;
-float hfi_curangleest_simple;
-bool hfi_usesimple = false;
 float hfi_dir_int2;
 float hfi_gain_int2;
 float hfi_Id_meas_low = 0;

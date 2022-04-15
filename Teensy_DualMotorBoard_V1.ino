@@ -6,37 +6,23 @@ typedef union {
   bool bl;
 } binaryFloat;
 
-
-#define chopperpin 33 //Digital output for chopper resistor
-#define debugpin 32
-#define engate 34
-
-//#define PRREG(x) Serial.print(#x" 0x"); Serial.println(x,HEX)
-#include <Biquad.h>
 #include <Math.h>
-#include <ControlTools.h>
-#include "muziek.c"
-#include <SPI.h>
-#include <QuadEncoder.h>
-
-#include <MotionProfile2.h>
 #include <arm_math.h>
+#include <SPI.h>
+
+#include "Biquad.h"
+#include "ControlTools.h"
+#include "muziek.c"
+#include "QuadEncoder.h"
+#include "MotionProfile.h"
 #include "defines.h"
 
-const float Busadc2Vbus = 1 / 4095.0 * 3.3 * ((68.3 + 5.05) / 5.05); //5.1 changed to 5.05 to improve accuracy. May differ board to board.
-
-int n_senscalib;
-bool setupready;
-
 void setup() {
-  Serial.begin(9600);
-
-  pinMode( 10, OUTPUT);
+  Serial.begin(1);
   pinMode( engate , OUTPUT);
   digitalWrite( engate , 1);
-
-  // Disable for DRV8302:
-  SPI_init();
+ 
+  SPI_init();  // Disable this for DRV8302
   xbar_init();
   adc_init();
   adc_etc_init();
@@ -44,9 +30,6 @@ void setup() {
   flexpwm4_init();
   syncflexpwm();
   Encoders_init();
-
-  //  pinMode(debugpin, OUTPUT);
-  //  pinMode(chopperpin, OUTPUT);
 
   while (Serial.available() > 4) {
     processSerialIn();
@@ -62,12 +45,8 @@ void setup() {
 void SPI_init() {
   SPI.begin();
   SPI.beginTransaction(SPISettings( 10e6 , MSBFIRST, SPI_MODE1)); //DRV8301 specsheet: 100 ns -> 10 Mhz. Set correct mode (fallingedgeof the clock).
-
-  int SSpin = 35;
   pinMode(SSpin, OUTPUT);
-
   int receivedVal16;
-
   while (receivedVal16 != 0x1038) {
     digitalWrite(SSpin, LOW);
     // receivedVal16 = SPI.transfer16( (0 << 15) | (0x02 << 11) | (1 << 3) ); //Set 3 PWM inputs mode
@@ -81,7 +60,6 @@ void SPI_init() {
     digitalWrite(SSpin, HIGH);
   }
   SPI.endTransaction();
-  //Serial.println( receivedVal16 , HEX); // This should give 0x1008
 }
 
 void xbar_init() {
@@ -131,15 +109,14 @@ void adc_etc_init() {
   /* Enable the external XBAR trigger0 and trigger1. Trigger4 uses sync mode to get triggered */
   ADC_ETC_CTRL = 1;  // TRIG_ENABLE
 
-  /* ADC channel, pin number
+  /* ADC channel, pin numbers
     7,  // 14/A0  AD_B1_02
     8,  // 15/A1  AD_B1_03
     12, // 16/A2  AD_B1_07
     11, // 17/A3  AD_B1_06
     6,  // 18/A4  AD_B1_01
     5,  // 19/A5  AD_B1_00
-
-
+    
     12, // 16/A2  AD_B1_07  M1 Ia
     8,  // 15/A1  AD_B1_03  M1 Ib
 
@@ -216,16 +193,14 @@ void flexpwm2_init() {     //set PWM
 
   FLEXPWM2_SM0VAL4 = 0 + adc_shift; // adc trigger 1
   FLEXPWM2_SM0VAL5 = FLEXPWM2_SM0VAL1 + adc_shift; // adc trigger 2
-
-
-  FLEXPWM2_SM2VAL4 = FLEXPWM2_SM0VAL4; // adc trigger 1 to show on digital output 9
-  FLEXPWM2_SM2VAL5 = FLEXPWM2_SM0VAL5; // adc trigger 2 to show on digital output 9
+  
+  //FLEXPWM2_SM2VAL4 = FLEXPWM2_SM0VAL4; // adc trigger 1 to show on digital output 9
+  //FLEXPWM2_SM2VAL5 = FLEXPWM2_SM0VAL5; // adc trigger 2 to show on digital output 9
 
   FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 );// Load Okay LDOK(SM) -> reload setting again
 
   //This triggers twice per PWM cycle:
   FLEXPWM2_SM0TCTRL = FLEXPWM_SMTCTRL_OUT_TRIG_EN(1 << 4) | FLEXPWM_SMTCTRL_OUT_TRIG_EN(1 << 5); //  val 4 of Flexpwm sm0 as trigger; #define FLEXPWM_SMTCTRL_OUT_TRIG_EN(n)   ((uint16_t)(((n) & 0x3F) << 0))
-
   //This triggers once per PWM cycle:
   //FLEXPWM2_SM0TCTRL = FLEXPWM_SMTCTRL_OUT_TRIG_EN(1 << 5); //  val 4 of Flexpwm sm0 as trigger; #define FLEXPWM_SMTCTRL_OUT_TRIG_EN(n)   ((uint16_t)(((n) & 0x3F) << 0))
 
@@ -233,10 +208,9 @@ void flexpwm2_init() {     //set PWM
   *(portConfigRegister(5)) = 1; //Set port 5 to the right mux value (found in pwm.c)
   *(portConfigRegister(6)) = 2; //Set port 6 to the right mux value (found in pwm.c)
 
-  FLEXPWM2_OUTEN |= FLEXPWM_OUTEN_PWMB_EN( 4 ); // Activate B channel
-  *(portConfigRegister(9)) = 2; //Set port 9 to the right mux value (found in pwm.c)
+  //FLEXPWM2_OUTEN |= FLEXPWM_OUTEN_PWMB_EN( 4 ); // Activate B channel
+  //*(portConfigRegister(9)) = 2; //Set port 9 to the right mux value (found in pwm.c)
 }
-
 
 void flexpwm4_init() {     //set PWM
   FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );//  Clear Load Okay LDOK(SM) -> no reload of PWM settings
@@ -315,15 +289,15 @@ void Encoders_init() {
   Encoder2.init();
 }
 
-//////////////////////////////////////////////////////////////
-// Start of the real time code
-//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////
+////// Start of the real time code, everything runs in the adc interrupts.  //////
+//////////////////////////////////////////////////////////////////////////////////
 
 void loop() {
 }
 
+// Should I not just put everything in 1 interrupt instead?
 void adcetc0_isr() {
-  //  digitalWrite( debugpin , HIGH);
   ADC_ETC_DONE0_1_IRQ |= 1;   // clear
   is_v7 = (FLEXPWM2_SM0STS & FLEXPWM_SMSTS_CMPF(2));  //is_v7 = True when in v7
   FLEXPWM2_SM0STS |= FLEXPWM_SMSTS_CMPF(2); //Reset flag
@@ -344,19 +318,15 @@ void adcetc0_isr() {
       firsterror = 41;
     }
   }
-  //asm("dsb");
 }
 
 void adcetc1_isr() {
-  //  digitalWrite( debugpin , LOW);
   curtime = micros();
   ADC_ETC_DONE0_1_IRQ |= 1 << 20;   // clear
   sens2 = (ADC_ETC_TRIG4_RESULT_1_0 & 4095) * 0.0008058608; // 4095.0 * 3.3;
   sens2_lp = lowpassIsens2->process( sens2 );
   sens4 = ((ADC_ETC_TRIG4_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
   sens4_lp = lowpassIsens4->process( sens4 );
-  //asm("dsb");
-
   if (setupready == 1) {
     if (n_senscalib < 1e4) {
       n_senscalib++;
@@ -370,8 +340,6 @@ void adcetc1_isr() {
       sens2_calib /= n_senscalib;
       sens3_calib /= n_senscalib;
       sens4_calib /= n_senscalib;
-      //      Serial.println(sens1_calib);
-      //      Serial.println(sens2_calib);
       n_senscalib++;
     }
     else {
@@ -419,7 +387,6 @@ void updateDisturbance() {
   dist = distval * 1 * (noisebit - 0.5) + distoff + ss_out;
 }
 
-
 void GenSetpoint() {
   SPprofile->REFidir = SPdir;
   SPprofile->rdelay = rdelay;
@@ -451,7 +418,7 @@ void GenSetpoint() {
   acc2 = -acc;
   vel2 = -vel;
 
-  //When no setpoint is running, allways convert reference to nearest encoder count to avoid noise
+  //When no setpoint is running, always convert reference to nearest encoder count to avoid noise
   if (SPprofile->REFstatus == 0 && offsetVel_lp == 0) {
     rmech = int((rmech / enc2rad)) * enc2rad;
   }
@@ -467,7 +434,6 @@ void readENC() {
   encoderPos2 = Encoder2.read();
   IndexFound1 = Encoder1.indexfound();
   IndexFound2 = Encoder2.indexfound();
-
 }
 
 void Control() {
@@ -521,7 +487,7 @@ void Control() {
   mechcontout2 = Kp2 * leadlag2->process( emech2 );
   mechcontout2 = lowpass2->process( mechcontout2 );
 
-  // FOUT!!!
+  // Clipping to be improved...
   Iout = integrator->processclip( mechcontout , -I_max * (1.5 * N_pp * Lambda_m ) - mechcontout , I_max * (1.5 * N_pp * Lambda_m ) - mechcontout );
   Iout2 = integrator2->processclip( mechcontout2 , -I_max * Kt_Nm_Apeak2 - mechcontout2 , I_max * Kt_Nm_Apeak2 - mechcontout2 );
 
@@ -577,7 +543,7 @@ void Transforms()
   Ialpha2 = ia2;
   Ibeta2 = one_by_sqrt3 * ia2 + two_by_sqrt3 * ib2;
 
-  // Park transform, ride the wave option %enccountperrev
+  // Park transform, ride the wave option
   thetaPark_enc = N_pp * (encoderPos1 % enccountperrev) * enc2rad + commutationoffset; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
   if (revercommutation1) {
     thetaPark_enc *= -1;
@@ -609,7 +575,7 @@ void Transforms()
   if (BEMFb < -Lambda_m ) {
     BEMFb = -Lambda_m ;
   }
-  thetaPark_obs = fast_atan2(BEMFb, BEMFa);
+  thetaPark_obs = atan2(BEMFb, BEMFa);
 
   while ( thetaPark_obs >= 2 * M_PI) {
     thetaPark_obs -= 2 * M_PI;
@@ -650,7 +616,7 @@ void Transforms()
     x1 *= 1.1;
     x2 *= 1.1;
   }
-  thetaPark_vesc = utils_fast_atan2( x2 - L_ib, x1 - L_ia);
+  thetaPark_vesc = atan2( x2 - L_ib, x1 - L_ia);
   while ( thetaPark_vesc >= 2 * M_PI) {
     thetaPark_vesc -= 2 * M_PI;
   }
@@ -788,7 +754,6 @@ void Transforms()
 
 
 
-
   // HFI
   if ( hfi_on ) {
     hfi_V_act = hfi_V;
@@ -807,17 +772,9 @@ void Transforms()
     }
     delta_id = hfi_Id_meas_high - hfi_Id_meas_low;
     delta_iq = hfi_Iq_meas_high - hfi_Iq_meas_low;
-
-    //    hfi_curangleest = 0.5 * atan2( -delta_iq / (hfi_V * T) , (delta_id / (hfi_V * T) - 0.5 * ( 1/Ld + 1/Lq )));
-    hfi_curangleest = 0.5 * atan2( -delta_iq  , delta_id - 0.5 * hfi_V * T * ( 1 / Ld + 1 / Lq ) );
-    hfi_curangleest_simple =  delta_iq / (hfi_V * T * ( 1 / Lq - 1 / Ld ) );
-    float hfi_error;
-    if ( hfi_usesimple ) {
-      hfi_error = -hfi_curangleest_simple; //Negative feedback
-    }
-    else {
-      hfi_error = -hfi_curangleest; //Negative feedback
-    }
+    //hfi_curangleest = 0.5 * atan2( -delta_iq  , delta_id - 0.5 * hfi_V * T * ( 1 / Ld + 1 / Lq ) ); //Complete calculation (not needed because error is always small due to feedback)
+    hfi_curangleest =  delta_iq / (hfi_V * T * ( 1 / Lq - 1 / Ld ) );
+    float hfi_error = -hfi_curangleest; //Negative feedback
     hfi_dir_int += T * hfi_error * hfi_gain_int2; //This the the double integrator
     hfi_dir += T * hfi_error * hfi_gain + hfi_dir_int; //This is the integrator and the double integrator
     while ( hfi_dir >= 2 * M_PI) {
@@ -832,7 +789,6 @@ void Transforms()
     while ( hfi_dir_int < 0) {
       hfi_dir_int += 2 * M_PI;
     }
-
   }
   else {
     hfi_dir = thetaPark_obs;
@@ -844,8 +800,6 @@ void Transforms()
     hfi_Iq_meas_high = 0;
     hfi_V_act = 0;
   }
-
-
 
 
   if (useIlowpass == 2)
@@ -936,85 +890,6 @@ void Transforms()
   Valpha = co * Vd - si * Vq;
   Vbeta  = co * Vq + si * Vd;
 
-  //  if ( hfi_on ) {
-  //    if ( is_v7) {
-  //      hfi_cursample += 1;
-  //    }
-  //
-  //    if (( hfi_cursample > 0) && (hfi_cursample <= hfi_maxsamples )) {
-  //      if (!is_v7) { //Remeber that we get the response of 2 cycles ago here
-  //        hfi_curprev    = (Ialpha * cos(hfi_dir  ) + Ibeta  * sin(hfi_dir ) );
-  //        hfi_curortprev = (Ibeta  * cos(hfi_dir ) - Ialpha * sin(hfi_dir ) );
-  //      }
-  //      else {
-  //        float cur_act = Ialpha * cos(hfi_dir ) + Ibeta  * sin(hfi_dir );
-  //        hfi_curtot    += (cur_act - hfi_curprev);
-  //        float cur_actort = Ibeta  * cos(hfi_dir ) - Ialpha * sin(hfi_dir );
-  //        hfi_curorttot += (cur_actort - hfi_curortprev);
-  //        //        hfi_curangleest = 0.5*atan2( -(cur_actort - hfi_curortprev) / (hfi_V * T) , ((cur_act - hfi_curprev) / (hfi_V * T) - 0.5 * ( 1/Ld + 1/Lq )));
-  //        //Tijdelijk een minteken want inspuiten is in 0 deg vast:
-  //        hfi_curangleest = 0.5 * atan2( -(cur_actort - hfi_curortprev) / (hfi_V * T) , ((cur_act - hfi_curprev) / (hfi_V * T) - 0.5 * ( 1 / Ld + 1 / Lq )));
-  //        hfi_curangleest_simple =  (cur_actort - hfi_curortprev) / (T * (1 / Lq - 1 / Ld ));
-  //        if ( hfi_usesimple ) {
-  //          hfi_dir_int -= T * hfi_curangleest_simple * hfi_gain;
-  //        }
-  //        else {
-  //          hfi_dir_int -= T * hfi_curangleest * hfi_gain;
-  //        }
-  //        hfi_dir_int2 += T * hfi_gain_int2 * hfi_dir_int;
-  //        while ( hfi_dir_int >= 2 * M_PI) {
-  //          hfi_dir_int -= 2 * M_PI;
-  //        }
-  //        while ( hfi_dir_int < 0) {
-  //          hfi_dir_int += 2 * M_PI;
-  //        }
-  //        while ( hfi_dir_int2 >= 2 * M_PI) {
-  //          hfi_dir_int2 -= 2 * M_PI;
-  //        }
-  //        while ( hfi_dir_int2 < 0) {
-  //          hfi_dir_int2 += 2 * M_PI;
-  //        }
-  //
-  //        hfi_dir = -hfi_pgain * hfi_curangleest + hfi_dir_int + hfi_dir_int2;
-  //        hfi_dir += eradpers_lp * T;
-  //        while ( hfi_dir >= 2 * M_PI) {
-  //          hfi_dir -= 2 * M_PI;
-  //        }
-  //        while ( hfi_dir < 0) {
-  //          hfi_dir += 2 * M_PI;
-  //        }
-  //      }
-  //    }
-  //    if (hfi_firstcycle) {
-  //      if (!is_v7) {
-  //        Valpha_offset_hfi = -0.5 * hfi_V * cos(hfi_dir );
-  //        Vbeta_offset_hfi = -0.5 * hfi_V * sin(hfi_dir );
-  //      }
-  //      else {
-  //        Valpha_offset_hfi = 0.5 * hfi_V * cos(hfi_dir );
-  //        Vbeta_offset_hfi = 0.5 * hfi_V * sin(hfi_dir );
-  //      }
-  //      hfi_firstcycle = false;
-  //    }
-  //    else {
-  //      if (!is_v7) {
-  //        Valpha_offset_hfi = -hfi_V * cos(hfi_dir );
-  //        Vbeta_offset_hfi = -hfi_V * sin(hfi_dir );
-  //      }
-  //      else {
-  //        Valpha_offset_hfi = hfi_V * cos(hfi_dir );
-  //        Vbeta_offset_hfi = hfi_V * sin(hfi_dir );
-  //      }
-  //    }
-  //  }
-  //  else {
-  //    Valpha_offset_hfi = 0;
-  //    Vbeta_offset_hfi = 0;
-  //    hfi_dir_int = 0;
-  //    hfi_firstcycle = true;
-  //  }
-
-
   Valpha += Valpha_offset + Valpha_offset_hfi;
   Vbeta += Vbeta_offset + Vbeta_offset_hfi;
 
@@ -1047,7 +922,7 @@ void Transforms()
   tB = Vb / sensBus;
   tC = Vc / sensBus;
 
-  //Motor 2:
+  //Motor 2 (needs to be updated, can probably be done much nicer):
   if (ridethewave2 != 1 ) {
     if (OutputOn == true) {
       Id_e2 = Id_SP2 - Id_meas2;
@@ -1111,19 +986,6 @@ void Transforms()
 }
 
 void changePWM() {
-  //  if ( (abs(tA - 0.5) > 0.499) || (abs(tB - 0.5) > 0.499) || (abs(tC - 0.5) > 0.499)  ) {
-  //    Novervolt += 1;
-  //    if (Novervolt >= 5) {
-  //      OutputOn = false;
-  //      if (firsterror == 0) {
-  //        firsterror = 2;
-  //      }
-  //    }
-  //  }
-  //  else {
-  //    Novervolt = 0;
-  //  }
-
   if (tA > 1) {
     tA = 1;
   }
@@ -1143,21 +1005,6 @@ void changePWM() {
   if (tC < 0) {
     tC = 0;
   }
-
-
-  if ( (abs(tA2 - 0.5) > 0.499) || (abs(tB2 - 0.5) > 0.499) || (abs(tC2 - 0.5) > 0.499)  ) {
-    Novervolt2 += 1;
-    if (Novervolt2 >= 5) {
-      OutputOn = false;
-      if (firsterror == 0) {
-        firsterror = 22;
-      }
-    }
-  }
-  else {
-    Novervolt2 = 0;
-  }
-
 
   if ( (abs(Id_SP) > I_max) || (abs(Iq_SP) > I_max) ) {
     OutputOn = false;
@@ -1222,7 +1069,6 @@ void changePWM() {
   FLEXPWM4_SM1VAL2 = -FLEXPWM4_SM1VAL3;
   FLEXPWM4_SM2VAL2 = -FLEXPWM4_SM2VAL3;
   FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
-  //  digitalWrite( debugpin , HIGH);
 }
 
 void communicationProcess() {
@@ -1258,8 +1104,6 @@ void communicationProcess() {
       sendall = 0;
     }
   }
-
-  //  digitalWrite( debugpin , LOW);
 }
 
 void xbar_connect(unsigned int input, unsigned int output)
@@ -1376,30 +1220,6 @@ void processSerialIn() {
   }
 }
 
-float utils_fast_atan2(float y, float x) {
-  float abs_y = fabsf(y) + 1e-20; // kludge to prevent 0/0 condition
-  float angle;
-
-  if (x >= 0) {
-    float r = (x - abs_y) / (x + abs_y);
-    float rsq = r * r;
-    angle = ((0.1963 * rsq) - 0.9817) * r + (M_PI / 4.0);
-  } else {
-    float r = (x + abs_y) / (abs_y - x);
-    float rsq = r * r;
-    angle = ((0.1963 * rsq) - 0.9817) * r + (3.0 * M_PI / 4.0);
-  }
-
-  UTILS_NAN_ZERO(angle);
-
-  if (y < 0) {
-    return (-angle);
-  } else {
-    return (angle);
-  }
-}
-
-
 void utils_step_towards(float * value, float goal, float step) {
   if (*value < goal) {
     if ((*value + step) < goal) {
@@ -1415,28 +1235,6 @@ void utils_step_towards(float * value, float goal, float step) {
     }
   }
 }
-
-float fast_atan2(float y, float x) {
-  // a := min (|x|, |y|) / max (|x|, |y|)
-  float abs_y = fabs(y);
-  float abs_x = fabs(x);
-  // inject FLT_MIN in denominator to avoid division by zero
-  float a = min(abs_x, abs_y) / (max(abs_x, abs_y));
-  // s := a * a
-  float s = a * a;
-  // r := ((-0.0464964749 * s + 0.15931422) * s - 0.327622764) * s * a + a
-  float r =
-    ((-0.0464964749f * s + 0.15931422f) * s - 0.327622764f) * s * a + a;
-  // if |y| > |x| then r := 1.57079637 - r
-  if (abs_y > abs_x) r = 1.57079637f - r;
-  // if x < 0 then r := 3.14159274 - r
-  if (x < 0.0f) r = 3.14159274f - r;
-  // if y < 0 then r := -r
-  if (y < 0.0f) r = -r;
-
-  return r;
-}
-
 
 void trace( ) {
   for( int i = 0; i<14; i++){
@@ -1554,99 +1352,99 @@ void trace( ) {
       case 109: bf.fp   = sens3_calib; break;
       case 110: bf.fp   = sens4_calib; break;
       case 111: bf.fp   = sensBus; break;
-      case 112: bf.fp   = Jload; break;
-      case 113: bf.fp   = velFF; break;
-      case 114: bf.fp   = R; break;
-      case 115: bf.fp   = Jload2; break;
-      case 116: bf.fp   = velFF2; break;
-      case 117: bf.fp   = offsetVelTot; break;
-      case 118: bf.fp   = offsetVel; break;
-      case 119: bf.fp   = offsetVel_lp; break;
-      case 120: bf.fp   = acc; break;
-      case 121: bf.fp   = vel; break;
-      case 122: bf.fp   = dist; break;
-      case 123: bf.fp   = Ialpha; break;
-      case 124: bf.fp   = Ibeta; break;
-      case 125: bf.fp   = thetaPark; break;
-      case 126: bf.fp   = thetaParkPrev; break;
-      case 127: bf.fp   = edeltarad; break;
-      case 128: bf.fp   = eradpers_lp; break;
-      case 129: bf.fp   = erpm; break;
-      case 130: bf.fp   = thetaPark_enc; break;
-      case 131: bf.fp   = thetaPark_obs; break;
-      case 132: bf.fp   = thetaPark_obs_prev; break;
-      case 133: bf.fp   = thetaPark_vesc; break;
-      case 134: bf.fp   = co; break;
-      case 135: bf.fp   = si; break;
-      case 136: bf.fp   = D; break;
-      case 137: bf.fp   = Q; break;
-      case 138: bf.fp   = tA; break;
-      case 139: bf.fp   = tB; break;
-      case 140: bf.fp   = tC; break;
-      case 141: bf.fp   = Id_e; break;
-      case 142: bf.fp   = Id_SP; break;
-      case 143: bf.fp   = Iq_e; break;
-      case 144: bf.fp   = Iq_SP; break;
-      case 145: bf.fp   = ia; break;
-      case 146: bf.fp   = ib; break;
-      case 147: bf.fp   = ic; break;
-      case 148: bf.fp   = acc2; break;
-      case 149: bf.fp   = vel2; break;
-      case 150: bf.fp   = Ialpha2; break;
-      case 151: bf.fp   = Ibeta2; break;
-      case 152: bf.fp   = thetaPark2; break;
-      case 153: bf.fp   = co2; break;
-      case 154: bf.fp   = si2; break;
-      case 155: bf.fp   = D2; break;
-      case 156: bf.fp   = Q2; break;
-      case 157: bf.fp   = tA2; break;
-      case 158: bf.fp   = tB2; break;
-      case 159: bf.fp   = tC2; break;
-      case 160: bf.fp   = Id_e2; break;
-      case 161: bf.fp   = Id_SP2; break;
-      case 162: bf.fp   = Iq_e2; break;
-      case 163: bf.fp   = Iq_SP2; break;
-      case 164: bf.fp   = ia2; break;
-      case 165: bf.fp   = ib2; break;
-      case 166: bf.fp   = ic2; break;
-      case 167: bf.fp   = Vq_distgain; break;
-      case 168: bf.fp   = Vd_distgain; break;
-      case 169: bf.fp   = Iq_distgain; break;
-      case 170: bf.fp   = Id_distgain; break;
-      case 171: bf.fp   = mechdistgain; break;
-      case 172: bf.fp   = maxVolt; break;
-      case 173: bf.fp   = Vtot; break;
-      case 174: bf.fp   = max_edeltarad; break;
-      case 175: bf.fp   = N_pp; break;
-      case 176: bf.fp   = Kt_Nm_Arms; break;
-      case 177: bf.fp   = Kt_Nm_Apeak; break;
-      case 178: bf.fp   = we; break;
-      case 179: bf.fp   = Ld; break;
-      case 180: bf.fp   = Lq; break;
-      case 181: bf.fp   = Lambda_m; break;
-      case 182: bf.fp   = observer_gain; break;
-      case 183: bf.fp   = x1; break;
-      case 184: bf.fp   = x2; break;
-      case 185: bf.fp   = Kt_Nm_Arms2; break;
-      case 186: bf.fp   = Kt_Nm_Apeak2; break;
-      case 187: bf.fp   = we2; break;
-      case 188: bf.fp   = Ld2; break;
-      case 189: bf.fp   = Lq2; break;
-      case 190: bf.fp   = Lambda_m2; break;
-      case 191: bf.fp   = hfi_V; break;
-      case 192: bf.fp   = hfi_V_act; break;
-      case 193: bf.fp   = hfi_dir; break;
-      case 194: bf.fp   = hfi_dir_int; break;
-      case 195: bf.fp   = Valpha_offset_hfi; break;
-      case 196: bf.fp   = Vbeta_offset_hfi; break;
-      case 197: bf.fp   = hfi_curtot; break;
-      case 198: bf.fp   = hfi_curorttot; break;
-      case 199: bf.fp   = hfi_curprev; break;
-      case 200: bf.fp   = hfi_curortprev; break;
-      case 201: bf.fp   = hfi_gain; break;
-      case 202: bf.fp   = hfi_pgain; break;
-      case 203: bf.fp   = hfi_curangleest; break;
-      case 204: bf.fp   = hfi_curangleest_simple; break;
+      case 112: bf.fp   = Busadc2Vbus; break;
+      case 113: bf.fp   = Jload; break;
+      case 114: bf.fp   = velFF; break;
+      case 115: bf.fp   = R; break;
+      case 116: bf.fp   = Jload2; break;
+      case 117: bf.fp   = velFF2; break;
+      case 118: bf.fp   = offsetVelTot; break;
+      case 119: bf.fp   = offsetVel; break;
+      case 120: bf.fp   = offsetVel_lp; break;
+      case 121: bf.fp   = acc; break;
+      case 122: bf.fp   = vel; break;
+      case 123: bf.fp   = dist; break;
+      case 124: bf.fp   = Ialpha; break;
+      case 125: bf.fp   = Ibeta; break;
+      case 126: bf.fp   = thetaPark; break;
+      case 127: bf.fp   = thetaParkPrev; break;
+      case 128: bf.fp   = edeltarad; break;
+      case 129: bf.fp   = eradpers_lp; break;
+      case 130: bf.fp   = erpm; break;
+      case 131: bf.fp   = thetaPark_enc; break;
+      case 132: bf.fp   = thetaPark_obs; break;
+      case 133: bf.fp   = thetaPark_obs_prev; break;
+      case 134: bf.fp   = thetaPark_vesc; break;
+      case 135: bf.fp   = co; break;
+      case 136: bf.fp   = si; break;
+      case 137: bf.fp   = D; break;
+      case 138: bf.fp   = Q; break;
+      case 139: bf.fp   = tA; break;
+      case 140: bf.fp   = tB; break;
+      case 141: bf.fp   = tC; break;
+      case 142: bf.fp   = Id_e; break;
+      case 143: bf.fp   = Id_SP; break;
+      case 144: bf.fp   = Iq_e; break;
+      case 145: bf.fp   = Iq_SP; break;
+      case 146: bf.fp   = ia; break;
+      case 147: bf.fp   = ib; break;
+      case 148: bf.fp   = ic; break;
+      case 149: bf.fp   = acc2; break;
+      case 150: bf.fp   = vel2; break;
+      case 151: bf.fp   = Ialpha2; break;
+      case 152: bf.fp   = Ibeta2; break;
+      case 153: bf.fp   = thetaPark2; break;
+      case 154: bf.fp   = co2; break;
+      case 155: bf.fp   = si2; break;
+      case 156: bf.fp   = D2; break;
+      case 157: bf.fp   = Q2; break;
+      case 158: bf.fp   = tA2; break;
+      case 159: bf.fp   = tB2; break;
+      case 160: bf.fp   = tC2; break;
+      case 161: bf.fp   = Id_e2; break;
+      case 162: bf.fp   = Id_SP2; break;
+      case 163: bf.fp   = Iq_e2; break;
+      case 164: bf.fp   = Iq_SP2; break;
+      case 165: bf.fp   = ia2; break;
+      case 166: bf.fp   = ib2; break;
+      case 167: bf.fp   = ic2; break;
+      case 168: bf.fp   = Vq_distgain; break;
+      case 169: bf.fp   = Vd_distgain; break;
+      case 170: bf.fp   = Iq_distgain; break;
+      case 171: bf.fp   = Id_distgain; break;
+      case 172: bf.fp   = mechdistgain; break;
+      case 173: bf.fp   = maxVolt; break;
+      case 174: bf.fp   = Vtot; break;
+      case 175: bf.fp   = max_edeltarad; break;
+      case 176: bf.fp   = N_pp; break;
+      case 177: bf.fp   = Kt_Nm_Arms; break;
+      case 178: bf.fp   = Kt_Nm_Apeak; break;
+      case 179: bf.fp   = we; break;
+      case 180: bf.fp   = Ld; break;
+      case 181: bf.fp   = Lq; break;
+      case 182: bf.fp   = Lambda_m; break;
+      case 183: bf.fp   = observer_gain; break;
+      case 184: bf.fp   = x1; break;
+      case 185: bf.fp   = x2; break;
+      case 186: bf.fp   = Kt_Nm_Arms2; break;
+      case 187: bf.fp   = Kt_Nm_Apeak2; break;
+      case 188: bf.fp   = we2; break;
+      case 189: bf.fp   = Ld2; break;
+      case 190: bf.fp   = Lq2; break;
+      case 191: bf.fp   = Lambda_m2; break;
+      case 192: bf.fp   = hfi_V; break;
+      case 193: bf.fp   = hfi_V_act; break;
+      case 194: bf.fp   = hfi_dir; break;
+      case 195: bf.fp   = hfi_dir_int; break;
+      case 196: bf.fp   = Valpha_offset_hfi; break;
+      case 197: bf.fp   = Vbeta_offset_hfi; break;
+      case 198: bf.fp   = hfi_curtot; break;
+      case 199: bf.fp   = hfi_curorttot; break;
+      case 200: bf.fp   = hfi_curprev; break;
+      case 201: bf.fp   = hfi_curortprev; break;
+      case 202: bf.fp   = hfi_gain; break;
+      case 203: bf.fp   = hfi_pgain; break;
+      case 204: bf.fp   = hfi_curangleest; break;
       case 205: bf.fp   = hfi_dir_int2; break;
       case 206: bf.fp   = hfi_gain_int2; break;
       case 207: bf.fp   = hfi_Id_meas_low; break;
@@ -1676,40 +1474,41 @@ void trace( ) {
       case 231: bf.sint = encoderPos2; break;
       case 232: bf.sint = enccountperrev; break;
       case 233: bf.sint = enccountperrev2; break;
-      case 234: bf.sint = SP_input_status; break;
-      case 235: bf.sint = spGO; break;
-      case 236: bf.sint = hfi_cursample; break;
-      case 237: bf.sint = hfi_maxsamples; break;
-      case 238: bf.uint = ridethewave; break;
-      case 239: bf.uint = ridethewave2; break;
-      case 240: bf.uint = sendall; break;
-      case 241: bf.uint = curloop; break;
-      case 242: bf.uint = Ndownsample; break;
-      case 243: bf.uint = downsample; break;
-      case 244: bf.uint = Novervolt; break;
-      case 245: bf.uint = Novervolt2; break;
-      case 246: bf.uint = NdownsamplePRBS; break;
-      case 247: bf.uint = downsamplePRBS; break;
-      case 248: bf.uint = ss_n_aver; break;
-      case 249: bf.uint = Nsend; break;
-      case 250: bf.uint = timePrev; break;
-      case 251: bf.uint = curtime; break;
-      case 252: bf.uint = overloadcount; break;
-      case 253: bf.uint = useIlowpass; break;
-      case 254: bf.uint = ContSelect; break;
-      case 255: bf.uint = firsterror; break;
-      case 256: bf.uint = N_pp2; break;
-      case 257: bf.bl   = SPdir; break;
-      case 258: bf.bl   = is_v7; break;
-      case 259: bf.bl   = haptic; break;
-      case 260: bf.bl   = revercommutation1; break;
-      case 261: bf.bl   = IndexFound1; break;
-      case 262: bf.bl   = IndexFound2; break;
-      case 263: bf.bl   = OutputOn; break;
-      case 264: bf.bl   = hfi_on; break;
-      case 265: bf.bl   = hfi_usesimple; break;
-      case 266: bf.bl   = hfi_firstcycle; break;
-      case 267: bf.bl   = hfi_useforfeedback; break;
+      case 234: bf.sint = n_senscalib; break;
+      case 235: bf.sint = SP_input_status; break;
+      case 236: bf.sint = spGO; break;
+      case 237: bf.sint = hfi_cursample; break;
+      case 238: bf.sint = hfi_maxsamples; break;
+      case 239: bf.uint = ridethewave; break;
+      case 240: bf.uint = ridethewave2; break;
+      case 241: bf.uint = sendall; break;
+      case 242: bf.uint = curloop; break;
+      case 243: bf.uint = Ndownsample; break;
+      case 244: bf.uint = downsample; break;
+      case 245: bf.uint = Novervolt; break;
+      case 246: bf.uint = Novervolt2; break;
+      case 247: bf.uint = NdownsamplePRBS; break;
+      case 248: bf.uint = downsamplePRBS; break;
+      case 249: bf.uint = ss_n_aver; break;
+      case 250: bf.uint = IndexFound1; break;
+      case 251: bf.uint = IndexFound2; break;
+      case 252: bf.uint = Nsend; break;
+      case 253: bf.uint = timePrev; break;
+      case 254: bf.uint = curtime; break;
+      case 255: bf.uint = overloadcount; break;
+      case 256: bf.uint = useIlowpass; break;
+      case 257: bf.uint = ContSelect; break;
+      case 258: bf.uint = firsterror; break;
+      case 259: bf.uint = N_pp2; break;
+      case 260: bf.bl   = SPdir; break;
+      case 261: bf.bl   = is_v7; break;
+      case 262: bf.bl   = haptic; break;
+      case 263: bf.bl   = revercommutation1; break;
+      case 264: bf.bl   = OutputOn; break;
+      case 265: bf.bl   = setupready; break;
+      case 266: bf.bl   = hfi_on; break;
+      case 267: bf.bl   = hfi_firstcycle; break;
+      case 268: bf.bl   = hfi_useforfeedback; break;
     }
     Serial.write( bf.bin , 4);
   }
@@ -1819,99 +1618,99 @@ void setpar( int isignal , binaryFloat bf ) {
     case 109: sens3_calib = bf.fp; break;
     case 110: sens4_calib = bf.fp; break;
     case 111: sensBus = bf.fp; break;
-    case 112: Jload = bf.fp; break;
-    case 113: velFF = bf.fp; break;
-    case 114: R = bf.fp; break;
-    case 115: Jload2 = bf.fp; break;
-    case 116: velFF2 = bf.fp; break;
-    case 117: offsetVelTot = bf.fp; break;
-    case 118: offsetVel = bf.fp; break;
-    case 119: offsetVel_lp = bf.fp; break;
-    case 120: acc = bf.fp; break;
-    case 121: vel = bf.fp; break;
-    case 122: dist = bf.fp; break;
-    case 123: Ialpha = bf.fp; break;
-    case 124: Ibeta = bf.fp; break;
-    case 125: thetaPark = bf.fp; break;
-    case 126: thetaParkPrev = bf.fp; break;
-    case 127: edeltarad = bf.fp; break;
-    case 128: eradpers_lp = bf.fp; break;
-    case 129: erpm = bf.fp; break;
-    case 130: thetaPark_enc = bf.fp; break;
-    case 131: thetaPark_obs = bf.fp; break;
-    case 132: thetaPark_obs_prev = bf.fp; break;
-    case 133: thetaPark_vesc = bf.fp; break;
-    case 134: co = bf.fp; break;
-    case 135: si = bf.fp; break;
-    case 136: D = bf.fp; break;
-    case 137: Q = bf.fp; break;
-    case 138: tA = bf.fp; break;
-    case 139: tB = bf.fp; break;
-    case 140: tC = bf.fp; break;
-    case 141: Id_e = bf.fp; break;
-    case 142: Id_SP = bf.fp; break;
-    case 143: Iq_e = bf.fp; break;
-    case 144: Iq_SP = bf.fp; break;
-    case 145: ia = bf.fp; break;
-    case 146: ib = bf.fp; break;
-    case 147: ic = bf.fp; break;
-    case 148: acc2 = bf.fp; break;
-    case 149: vel2 = bf.fp; break;
-    case 150: Ialpha2 = bf.fp; break;
-    case 151: Ibeta2 = bf.fp; break;
-    case 152: thetaPark2 = bf.fp; break;
-    case 153: co2 = bf.fp; break;
-    case 154: si2 = bf.fp; break;
-    case 155: D2 = bf.fp; break;
-    case 156: Q2 = bf.fp; break;
-    case 157: tA2 = bf.fp; break;
-    case 158: tB2 = bf.fp; break;
-    case 159: tC2 = bf.fp; break;
-    case 160: Id_e2 = bf.fp; break;
-    case 161: Id_SP2 = bf.fp; break;
-    case 162: Iq_e2 = bf.fp; break;
-    case 163: Iq_SP2 = bf.fp; break;
-    case 164: ia2 = bf.fp; break;
-    case 165: ib2 = bf.fp; break;
-    case 166: ic2 = bf.fp; break;
-    case 167: Vq_distgain = bf.fp; break;
-    case 168: Vd_distgain = bf.fp; break;
-    case 169: Iq_distgain = bf.fp; break;
-    case 170: Id_distgain = bf.fp; break;
-    case 171: mechdistgain = bf.fp; break;
-    case 172: maxVolt = bf.fp; break;
-    case 173: Vtot = bf.fp; break;
-    case 174: max_edeltarad = bf.fp; break;
-    case 175: N_pp = bf.fp; break;
-    case 176: Kt_Nm_Arms = bf.fp; break;
-    case 177: Kt_Nm_Apeak = bf.fp; break;
-    case 178: we = bf.fp; break;
-    case 179: Ld = bf.fp; break;
-    case 180: Lq = bf.fp; break;
-    case 181: Lambda_m = bf.fp; break;
-    case 182: observer_gain = bf.fp; break;
-    case 183: x1 = bf.fp; break;
-    case 184: x2 = bf.fp; break;
-    case 185: Kt_Nm_Arms2 = bf.fp; break;
-    case 186: Kt_Nm_Apeak2 = bf.fp; break;
-    case 187: we2 = bf.fp; break;
-    case 188: Ld2 = bf.fp; break;
-    case 189: Lq2 = bf.fp; break;
-    case 190: Lambda_m2 = bf.fp; break;
-    case 191: hfi_V = bf.fp; break;
-    case 192: hfi_V_act = bf.fp; break;
-    case 193: hfi_dir = bf.fp; break;
-    case 194: hfi_dir_int = bf.fp; break;
-    case 195: Valpha_offset_hfi = bf.fp; break;
-    case 196: Vbeta_offset_hfi = bf.fp; break;
-    case 197: hfi_curtot = bf.fp; break;
-    case 198: hfi_curorttot = bf.fp; break;
-    case 199: hfi_curprev = bf.fp; break;
-    case 200: hfi_curortprev = bf.fp; break;
-    case 201: hfi_gain = bf.fp; break;
-    case 202: hfi_pgain = bf.fp; break;
-    case 203: hfi_curangleest = bf.fp; break;
-    case 204: hfi_curangleest_simple = bf.fp; break;
+    case 112: Busadc2Vbus = bf.fp; break;
+    case 113: Jload = bf.fp; break;
+    case 114: velFF = bf.fp; break;
+    case 115: R = bf.fp; break;
+    case 116: Jload2 = bf.fp; break;
+    case 117: velFF2 = bf.fp; break;
+    case 118: offsetVelTot = bf.fp; break;
+    case 119: offsetVel = bf.fp; break;
+    case 120: offsetVel_lp = bf.fp; break;
+    case 121: acc = bf.fp; break;
+    case 122: vel = bf.fp; break;
+    case 123: dist = bf.fp; break;
+    case 124: Ialpha = bf.fp; break;
+    case 125: Ibeta = bf.fp; break;
+    case 126: thetaPark = bf.fp; break;
+    case 127: thetaParkPrev = bf.fp; break;
+    case 128: edeltarad = bf.fp; break;
+    case 129: eradpers_lp = bf.fp; break;
+    case 130: erpm = bf.fp; break;
+    case 131: thetaPark_enc = bf.fp; break;
+    case 132: thetaPark_obs = bf.fp; break;
+    case 133: thetaPark_obs_prev = bf.fp; break;
+    case 134: thetaPark_vesc = bf.fp; break;
+    case 135: co = bf.fp; break;
+    case 136: si = bf.fp; break;
+    case 137: D = bf.fp; break;
+    case 138: Q = bf.fp; break;
+    case 139: tA = bf.fp; break;
+    case 140: tB = bf.fp; break;
+    case 141: tC = bf.fp; break;
+    case 142: Id_e = bf.fp; break;
+    case 143: Id_SP = bf.fp; break;
+    case 144: Iq_e = bf.fp; break;
+    case 145: Iq_SP = bf.fp; break;
+    case 146: ia = bf.fp; break;
+    case 147: ib = bf.fp; break;
+    case 148: ic = bf.fp; break;
+    case 149: acc2 = bf.fp; break;
+    case 150: vel2 = bf.fp; break;
+    case 151: Ialpha2 = bf.fp; break;
+    case 152: Ibeta2 = bf.fp; break;
+    case 153: thetaPark2 = bf.fp; break;
+    case 154: co2 = bf.fp; break;
+    case 155: si2 = bf.fp; break;
+    case 156: D2 = bf.fp; break;
+    case 157: Q2 = bf.fp; break;
+    case 158: tA2 = bf.fp; break;
+    case 159: tB2 = bf.fp; break;
+    case 160: tC2 = bf.fp; break;
+    case 161: Id_e2 = bf.fp; break;
+    case 162: Id_SP2 = bf.fp; break;
+    case 163: Iq_e2 = bf.fp; break;
+    case 164: Iq_SP2 = bf.fp; break;
+    case 165: ia2 = bf.fp; break;
+    case 166: ib2 = bf.fp; break;
+    case 167: ic2 = bf.fp; break;
+    case 168: Vq_distgain = bf.fp; break;
+    case 169: Vd_distgain = bf.fp; break;
+    case 170: Iq_distgain = bf.fp; break;
+    case 171: Id_distgain = bf.fp; break;
+    case 172: mechdistgain = bf.fp; break;
+    case 173: maxVolt = bf.fp; break;
+    case 174: Vtot = bf.fp; break;
+    case 175: max_edeltarad = bf.fp; break;
+    case 176: N_pp = bf.fp; break;
+    case 177: Kt_Nm_Arms = bf.fp; break;
+    case 178: Kt_Nm_Apeak = bf.fp; break;
+    case 179: we = bf.fp; break;
+    case 180: Ld = bf.fp; break;
+    case 181: Lq = bf.fp; break;
+    case 182: Lambda_m = bf.fp; break;
+    case 183: observer_gain = bf.fp; break;
+    case 184: x1 = bf.fp; break;
+    case 185: x2 = bf.fp; break;
+    case 186: Kt_Nm_Arms2 = bf.fp; break;
+    case 187: Kt_Nm_Apeak2 = bf.fp; break;
+    case 188: we2 = bf.fp; break;
+    case 189: Ld2 = bf.fp; break;
+    case 190: Lq2 = bf.fp; break;
+    case 191: Lambda_m2 = bf.fp; break;
+    case 192: hfi_V = bf.fp; break;
+    case 193: hfi_V_act = bf.fp; break;
+    case 194: hfi_dir = bf.fp; break;
+    case 195: hfi_dir_int = bf.fp; break;
+    case 196: Valpha_offset_hfi = bf.fp; break;
+    case 197: Vbeta_offset_hfi = bf.fp; break;
+    case 198: hfi_curtot = bf.fp; break;
+    case 199: hfi_curorttot = bf.fp; break;
+    case 200: hfi_curprev = bf.fp; break;
+    case 201: hfi_curortprev = bf.fp; break;
+    case 202: hfi_gain = bf.fp; break;
+    case 203: hfi_pgain = bf.fp; break;
+    case 204: hfi_curangleest = bf.fp; break;
     case 205: hfi_dir_int2 = bf.fp; break;
     case 206: hfi_gain_int2 = bf.fp; break;
     case 207: hfi_Id_meas_low = bf.fp; break;
@@ -1939,49 +1738,50 @@ void setpar( int isignal , binaryFloat bf ) {
     case 229: incomingByte = bf.sint; break;
     case 230: encoderPos1 = bf.sint; break;
     case 231: encoderPos2 = bf.sint; break;
-    case 234: SP_input_status = bf.sint; break;
-    case 235: spGO = bf.sint; break;
-    case 236: hfi_cursample = bf.sint; break;
-    case 237: hfi_maxsamples = bf.sint; break;
-    case 238: ridethewave = bf.uint; break;
-    case 239: ridethewave2 = bf.uint; break;
-    case 240: sendall = bf.uint; break;
-    case 241: curloop = bf.uint; break;
-    case 242: Ndownsample = bf.uint; break;
-    case 243: downsample = bf.uint; break;
-    case 244: Novervolt = bf.uint; break;
-    case 245: Novervolt2 = bf.uint; break;
-    case 246: NdownsamplePRBS = bf.uint; break;
-    case 247: downsamplePRBS = bf.uint; break;
-    case 248: ss_n_aver = bf.uint; break;
-    case 249: Nsend = bf.uint; break;
-    case 250: timePrev = bf.uint; break;
-    case 251: curtime = bf.uint; break;
-    case 252: overloadcount = bf.uint; break;
-    case 253: useIlowpass = bf.uint; break;
-    case 254: ContSelect = bf.uint; break;
-    case 255: firsterror = bf.uint; break;
-    case 256: N_pp2 = bf.uint; break;
-    case 257: SPdir = bf.bl; break;
-    case 258: is_v7 = bf.bl; break;
-    case 259: haptic = bf.bl; break;
-    case 260: revercommutation1 = bf.bl; break;
-    case 261: IndexFound1 = bf.bl; break;
-    case 262: IndexFound2 = bf.bl; break;
-    case 263: OutputOn = bf.bl; break;
-    case 264: hfi_on = bf.bl; break;
-    case 265: hfi_usesimple = bf.bl; break;
-    case 266: hfi_firstcycle = bf.bl; break;
-    case 267: hfi_useforfeedback = bf.bl; break;
+    case 234: n_senscalib = bf.sint; break;
+    case 235: SP_input_status = bf.sint; break;
+    case 236: spGO = bf.sint; break;
+    case 237: hfi_cursample = bf.sint; break;
+    case 238: hfi_maxsamples = bf.sint; break;
+    case 239: ridethewave = bf.uint; break;
+    case 240: ridethewave2 = bf.uint; break;
+    case 241: sendall = bf.uint; break;
+    case 242: curloop = bf.uint; break;
+    case 243: Ndownsample = bf.uint; break;
+    case 244: downsample = bf.uint; break;
+    case 245: Novervolt = bf.uint; break;
+    case 246: Novervolt2 = bf.uint; break;
+    case 247: NdownsamplePRBS = bf.uint; break;
+    case 248: downsamplePRBS = bf.uint; break;
+    case 249: ss_n_aver = bf.uint; break;
+    case 250: IndexFound1 = bf.uint; break;
+    case 251: IndexFound2 = bf.uint; break;
+    case 252: Nsend = bf.uint; break;
+    case 253: timePrev = bf.uint; break;
+    case 254: curtime = bf.uint; break;
+    case 255: overloadcount = bf.uint; break;
+    case 256: useIlowpass = bf.uint; break;
+    case 257: ContSelect = bf.uint; break;
+    case 258: firsterror = bf.uint; break;
+    case 259: N_pp2 = bf.uint; break;
+    case 260: SPdir = bf.bl; break;
+    case 261: is_v7 = bf.bl; break;
+    case 262: haptic = bf.bl; break;
+    case 263: revercommutation1 = bf.bl; break;
+    case 264: OutputOn = bf.bl; break;
+    case 265: setupready = bf.bl; break;
+    case 266: hfi_on = bf.bl; break;
+    case 267: hfi_firstcycle = bf.bl; break;
+    case 268: hfi_useforfeedback = bf.bl; break;
   }
 }
 
 void printSignals( unsigned int selected ) {
-  const char *signalNames[] = { "Ts", "advancefactor", "i_vector_radpers", "i_vector_radpers_act", "i_vector_acc", "maxDutyCycle", "BEMFa", "BEMFb", "Ialpha_last", "Ibeta_last", "commutationoffset", "DQdisturbangle", "Vq", "Vd", "Valpha", "Vbeta", "thetawave", "Id_meas", "Iq_meas", "VSP", "commutationoffset2", "DQdisturbangle2", "Vq2", "Vd2", "Valpha2", "Vbeta2", "thetawave2", "Id_meas2", "Iq_meas2", "Va", "Vb", "Vc", "Va2", "Vb2", "Vc2", "adc2A1", "adc2A2", "one_by_sqrt3", "two_by_sqrt3", "sqrt_two_three", "sqrt3_by_2", "mechcontout", "Iout", "mechcontout2", "Iout2", "muziek_gain", "muziek_gain_V", "distval", "distoff", "ss_phase", "ss_fstart", "ss_fstep", "ss_fend", "ss_gain", "ss_offset", "ss_f", "ss_tstart", "ss_out", "T", "enc2rad", "enc2rad2", "I_max", "V_Bus", "rmech", "rdelay", "emech1", "ymech1", "rmech2", "emech2", "ymech2", "rmechoffset", "rmechoffset2", "Kp", "fBW", "alpha1", "alpha2", "fInt", "fLP", "Kp2", "fBW2", "alpha1_2", "alpha2_2", "fInt2", "fLP2", "Vout", "fIntCur", "Kp_iq", "Kp_id", "Ki_iq", "Ki_id", "vq_int_state", "vd_int_state", "Vout2", "fIntCur2", "Icontgain2", "sensCalVal1", "sensCalVal2", "sensCalVal3", "sensCalVal4", "sens1", "sens2", "sens3", "sens4", "sens1_lp", "sens2_lp", "sens3_lp", "sens4_lp", "sens1_calib", "sens2_calib", "sens3_calib", "sens4_calib", "sensBus", "Jload", "velFF", "R", "Jload2", "velFF2", "offsetVelTot", "offsetVel", "offsetVel_lp", "acc", "vel", "dist", "Ialpha", "Ibeta", "thetaPark", "thetaParkPrev", "edeltarad", "eradpers_lp", "erpm", "thetaPark_enc", "thetaPark_obs", "thetaPark_obs_prev", "thetaPark_vesc", "co", "si", "D", "Q", "tA", "tB", "tC", "Id_e", "Id_SP", "Iq_e", "Iq_SP", "ia", "ib", "ic", "acc2", "vel2", "Ialpha2", "Ibeta2", "thetaPark2", "co2", "si2", "D2", "Q2", "tA2", "tB2", "tC2", "Id_e2", "Id_SP2", "Iq_e2", "Iq_SP2", "ia2", "ib2", "ic2", "Vq_distgain", "Vd_distgain", "Iq_distgain", "Id_distgain", "mechdistgain", "maxVolt", "Vtot", "max_edeltarad", "N_pp", "Kt_Nm_Arms", "Kt_Nm_Apeak", "we", "Ld", "Lq", "Lambda_m", "observer_gain", "x1", "x2", "Kt_Nm_Arms2", "Kt_Nm_Apeak2", "we2", "Ld2", "Lq2", "Lambda_m2", "hfi_V", "hfi_V_act", "hfi_dir", "hfi_dir_int", "Valpha_offset_hfi", "Vbeta_offset_hfi", "hfi_curtot", "hfi_curorttot", "hfi_curprev", "hfi_curortprev", "hfi_gain", "hfi_pgain", "hfi_curangleest", "hfi_curangleest_simple", "hfi_dir_int2", "hfi_gain_int2", "hfi_Id_meas_low", "hfi_Iq_meas_low", "hfi_Id_meas_high", "hfi_Iq_meas_high", "delta_id", "delta_iq", "hfi_advance_factor", "hfi_abs_pos", "VqFF", "VdFF", "VqFF2", "VdFF2", "Iq_offset_SP", "Id_offset_SP", "Id_offset_SP2", "Valpha_offset", "Vbeta_offset", "Valpha2_offset", "anglechoice", "timeremain", "spNgo", "REFstatus", "incomingByte", "encoderPos1", "encoderPos2", "enccountperrev", "enccountperrev2", "SP_input_status", "spGO", "hfi_cursample", "hfi_maxsamples", "ridethewave", "ridethewave2", "sendall", "curloop", "Ndownsample", "downsample", "Novervolt", "Novervolt2", "NdownsamplePRBS", "downsamplePRBS", "ss_n_aver", "Nsend", "timePrev", "curtime", "overloadcount", "useIlowpass", "ContSelect", "firsterror", "N_pp2", "SPdir", "is_v7", "haptic", "revercommutation1", "IndexFound1", "IndexFound2", "OutputOn", "hfi_on", "hfi_usesimple", "hfi_firstcycle", "hfi_useforfeedback",  };
-  const char *signalTypes[] = { "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "b", "b", "b", "b", "b", "b", "b", "b", "b", "b", "b",  };
+  const char *signalNames[] = { "Ts", "advancefactor", "i_vector_radpers", "i_vector_radpers_act", "i_vector_acc", "maxDutyCycle", "BEMFa", "BEMFb", "Ialpha_last", "Ibeta_last", "commutationoffset", "DQdisturbangle", "Vq", "Vd", "Valpha", "Vbeta", "thetawave", "Id_meas", "Iq_meas", "VSP", "commutationoffset2", "DQdisturbangle2", "Vq2", "Vd2", "Valpha2", "Vbeta2", "thetawave2", "Id_meas2", "Iq_meas2", "Va", "Vb", "Vc", "Va2", "Vb2", "Vc2", "adc2A1", "adc2A2", "one_by_sqrt3", "two_by_sqrt3", "sqrt_two_three", "sqrt3_by_2", "mechcontout", "Iout", "mechcontout2", "Iout2", "muziek_gain", "muziek_gain_V", "distval", "distoff", "ss_phase", "ss_fstart", "ss_fstep", "ss_fend", "ss_gain", "ss_offset", "ss_f", "ss_tstart", "ss_out", "T", "enc2rad", "enc2rad2", "I_max", "V_Bus", "rmech", "rdelay", "emech1", "ymech1", "rmech2", "emech2", "ymech2", "rmechoffset", "rmechoffset2", "Kp", "fBW", "alpha1", "alpha2", "fInt", "fLP", "Kp2", "fBW2", "alpha1_2", "alpha2_2", "fInt2", "fLP2", "Vout", "fIntCur", "Kp_iq", "Kp_id", "Ki_iq", "Ki_id", "vq_int_state", "vd_int_state", "Vout2", "fIntCur2", "Icontgain2", "sensCalVal1", "sensCalVal2", "sensCalVal3", "sensCalVal4", "sens1", "sens2", "sens3", "sens4", "sens1_lp", "sens2_lp", "sens3_lp", "sens4_lp", "sens1_calib", "sens2_calib", "sens3_calib", "sens4_calib", "sensBus", "Busadc2Vbus", "Jload", "velFF", "R", "Jload2", "velFF2", "offsetVelTot", "offsetVel", "offsetVel_lp", "acc", "vel", "dist", "Ialpha", "Ibeta", "thetaPark", "thetaParkPrev", "edeltarad", "eradpers_lp", "erpm", "thetaPark_enc", "thetaPark_obs", "thetaPark_obs_prev", "thetaPark_vesc", "co", "si", "D", "Q", "tA", "tB", "tC", "Id_e", "Id_SP", "Iq_e", "Iq_SP", "ia", "ib", "ic", "acc2", "vel2", "Ialpha2", "Ibeta2", "thetaPark2", "co2", "si2", "D2", "Q2", "tA2", "tB2", "tC2", "Id_e2", "Id_SP2", "Iq_e2", "Iq_SP2", "ia2", "ib2", "ic2", "Vq_distgain", "Vd_distgain", "Iq_distgain", "Id_distgain", "mechdistgain", "maxVolt", "Vtot", "max_edeltarad", "N_pp", "Kt_Nm_Arms", "Kt_Nm_Apeak", "we", "Ld", "Lq", "Lambda_m", "observer_gain", "x1", "x2", "Kt_Nm_Arms2", "Kt_Nm_Apeak2", "we2", "Ld2", "Lq2", "Lambda_m2", "hfi_V", "hfi_V_act", "hfi_dir", "hfi_dir_int", "Valpha_offset_hfi", "Vbeta_offset_hfi", "hfi_curtot", "hfi_curorttot", "hfi_curprev", "hfi_curortprev", "hfi_gain", "hfi_pgain", "hfi_curangleest", "hfi_dir_int2", "hfi_gain_int2", "hfi_Id_meas_low", "hfi_Iq_meas_low", "hfi_Id_meas_high", "hfi_Iq_meas_high", "delta_id", "delta_iq", "hfi_advance_factor", "hfi_abs_pos", "VqFF", "VdFF", "VqFF2", "VdFF2", "Iq_offset_SP", "Id_offset_SP", "Id_offset_SP2", "Valpha_offset", "Vbeta_offset", "Valpha2_offset", "anglechoice", "timeremain", "spNgo", "REFstatus", "incomingByte", "encoderPos1", "encoderPos2", "enccountperrev", "enccountperrev2", "n_senscalib", "SP_input_status", "spGO", "hfi_cursample", "hfi_maxsamples", "ridethewave", "ridethewave2", "sendall", "curloop", "Ndownsample", "downsample", "Novervolt", "Novervolt2", "NdownsamplePRBS", "downsamplePRBS", "ss_n_aver", "IndexFound1", "IndexFound2", "Nsend", "timePrev", "curtime", "overloadcount", "useIlowpass", "ContSelect", "firsterror", "N_pp2", "SPdir", "is_v7", "haptic", "revercommutation1", "OutputOn", "setupready", "hfi_on", "hfi_firstcycle", "hfi_useforfeedback",  };
+  const char *signalTypes[] = { "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "b", "b", "b", "b", "b", "b", "b", "b", "b", "b", "b", "b", "b",  };
   int imax = 10;
   switch(selected){
-    case 0: imax = 268; break;
+    case 0: imax = 269; break;
   }
   for ( int i = 0; i < imax; i++) {
     Serial.println( signalNames[i] );
