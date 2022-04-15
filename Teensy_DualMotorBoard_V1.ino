@@ -29,7 +29,7 @@ int n_senscalib;
 bool setupready;
 
 void setup() {
-  Serial.begin(9600);s
+  Serial.begin(9600);
 
   pinMode( 10, OUTPUT);
   pinMode( engate , OUTPUT);
