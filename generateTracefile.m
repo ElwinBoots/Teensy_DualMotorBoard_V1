@@ -1,5 +1,4 @@
-% file = 'C:\Users\Elwin\Documents\Arduino\teensy40_pololuG2test2binary11_pmsm_ADCtest7\defines.h';
-file = 'C:\GIT\Teensy_DualMotorBoard_V1\defines.h';
+file = 'defines.h';
 
 h = fopen(file);
 text = fscanf( h , '%c');
@@ -119,8 +118,8 @@ txt = [txt ['}' newline]];
 %%
 
 txt = [txt 'void printSignals( unsigned int selected ) {'];
-txt = [txt ['  char *signalNames[] = { ' sprintf( '"%s", ' , float{:} , int{:} , uint{:}  , bool{:} ) ' };']];
-txt = [txt ['  char *signalTypes[] = { ' sprintf( '"%c", ' , signaltype ) ' };']];
+txt = [txt ['  const char *signalNames[] = { ' sprintf( '"%s", ' , float{:} , int{:} , uint{:}  , bool{:} ) ' };']];
+txt = [txt ['  const char *signalTypes[] = { ' sprintf( '"%c", ' , signaltype ) ' };']];
 
 txt = [txt '  int imax = 10;'];
 txt = [txt '  switch(selected){'];
@@ -135,7 +134,7 @@ txt = [txt '  }'];
 txt = [txt '}'];
 
   
-filename = 'test.c';
+filename = 'tracefile.txt';
 % Write to file
 fid = fopen(filename,'w');
 for kLine = 1 : length(txt)

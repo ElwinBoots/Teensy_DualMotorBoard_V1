@@ -69,48 +69,6 @@ from numpy import (atleast_1d, poly, polyval, roots, real, asarray,
 from numpy.polynomial.polynomial import polyval as npp_polyval
 warnings.filterwarnings("ignore",category=matplotlib.cbook.mplDeprecation)
 
-
-
-def go( ser = ser ):
-    ser = start( ser )
-    
-    setpar('ridethewave' , 1 , ser)
-    time.sleep( 0.5 )
-    
-    setpar( 'commutationoffset',0) 
-    
-    
-    setpar('Valpha_offset' , 1)
-    time.sleep( 0.5 )
-    Valpha1 = getsig('Valpha_offset')
-    Ialpha1 = getsig('Ialpha')
-    Ibeta1 = getsig('Ibeta')
-    Ia1 = getsig('ia')
-    bus1 = getsig('sensBus')
-    
-    setpar('Valpha_offset' , 2)
-    
-    time.sleep( 0.5 )
-    Valpha2 = getsig('Valpha_offset')
-    Va = getsig('Va')
-    Vb = getsig('Vb')
-    Ialpha2 = getsig('Ialpha')
-    Ibeta2 = getsig('Ibeta')
-    bus2 = getsig('sensBus')
-    Ia2 = getsig('ia')
-    
-    R = (Valpha2 - Valpha1) / (Ialpha2 - Ialpha1)
-    
-    offset = getsig('thetaPark_enc')
-    
-    setpar('Valpha_offset' , 0)
-    setpar( 'commutationoffset', -offset) 
-    
-    thetaPark = getsig('thetaPark')
-    
-    CL()
-
-
 def tracesignal( signals, t ,plot=True):
     setTrace( signals )
     t,s = readData( int(t /Ts) )
@@ -147,16 +105,6 @@ def restart( ser=ser ):
 
 def setcont( contnum ):
     ser.write( b'C' + struct.pack('I',  contnum ) )
-
-def setenc( encnum ):
-    if encnum == 2:
-        setpar('EncSelect_FB' , 2)
-        ser.write( b'C' + struct.pack('I',  2) ) # 30 Hz BW
-        ser.write( b'o' + struct.pack('f',  0) ) # Restart controller
-    else:
-        setpar('EncSelect_FB' , 1)
-        ser.write( b'C' + struct.pack('I',  2) ) # 30 Hz BW
-        ser.write( b'o' + struct.pack('f',  0) ) # Restart controller
 
 def moverel( pos ):
     p = pos
@@ -222,38 +170,7 @@ def Integrator( f0, Ts):
     num = [b0, b1]
     den = [1  , -1]
     return num, den
-
-def fig():
-    plt.figure()
-    line1, = plt.plot( t , sens , label='sens')
-    line1, = plt.plot( t , e , label='e')
-    line1, = plt.plot( t , r , label='r')
-    line1, = plt.plot( t , dist , label='dist')
-    line1, = plt.plot( t , Vout , label='Vout')
-    line1, = plt.plot( t , ss_f , label='ss_f')
-    line1, = plt.plot( t , enc2 , label='enc2')
-    line1, = plt.plot( t , emech , label='emech')
-    plt.grid( 1 , 'both')
-    plt.legend()
-    plt.show()
-    
-#    tbegin = 1
-#    tlength = 1
-#    
-#    jbegin = int( tbegin / Ts)
-#    jend = jbegin + int( tlength / Ts)
-#    
-#    plt.figure()
-#    line1, = plt.step( t[jbegin:jend] , sens[jbegin:jend] , label='sens')
-#    line1, = plt.step( t[jbegin:jend] , e[jbegin:jend] , label='e')
-#    line1, = plt.step( t[jbegin:jend] , r[jbegin:jend] , label='r')
-#    line1, = plt.step( t[jbegin:jend] , dist[jbegin:jend] , label='dist')
-#    line1, = plt.step( t[jbegin:jend] , Vout[jbegin:jend] , label='Vout')
-#    line1, = plt.step( t[jbegin:jend] , ss_f[jbegin:jend] , label='ss_f')
-#    line1, = plt.step( t[jbegin:jend] , enc2[jbegin:jend] , label='enc2')
-#    plt.grid( 1 , 'both')
-#    plt.legend()
-#    plt.show()
+  
 
 def readData(N , ser=ser):
     Nsig = 2+n_trace
@@ -298,9 +215,6 @@ def readData(N , ser=ser):
             plt.grid( 1 , 'both')
             plt.show()
     return t,s
-
-
-
 
 
 
@@ -405,182 +319,6 @@ def analyseSS( freq ):
     fft( sens[I] , 'cursens' );
     fft( emech[I] , 'error' );
 
-def makebodesOL( Ndownsample = 1 , fignum = None):
-    DIST,f = getFFT( dist , Ndownsample )
-    VOUT,f = getFFT( Vout , Ndownsample )
-    SENS,f = getFFT( sens , Ndownsample )
-    E,f = getFFT( e , Ndownsample )
-    ENC2,f = getFFT( enc2 , Ndownsample )
-    R,f = getFFT( r , Ndownsample )
-    EMECH,f = getFFT( emech , Ndownsample )
-
-    S = E / DIST
-    CL = SENS / DIST
-    P = SENS / VOUT
-    OL = 1/S - 1
-    
-    if (fignum == None):
-        plt.figure( fignum )
-    else:
-        plt.figure( fignum ); fignum += 1;    
-    bode( CL , f , 'Closed loop')
-      
-#    plt.figure()
-#    nyquist( OL , f , 'Open loop')
-    
-#    Relec = 1/0.45
-#    Lelec = 1/((5e3*2*np.pi*0.07))
-#    F = (Lelec * 1j * 2*np.pi*f + Relec)
-#    delay = np.exp( 1.7 * Ts * -f * 2 * np.pi * 1j )
-    if (fignum == None):
-        plt.figure( fignum )
-    else:
-        plt.figure( fignum ); fignum += 1;    
-    bode( P , f , 'Plant')
-#    bode( 1/F , f , 'Plant fit')
-#    bode( 1/F * delay , f , 'Plant fit, delayed')
-    
-#    plt.figure()
-#    bode( OL / (1 + OL), f , 'closed loop, no FF')
-#    bode( (OL + P*Relec )/ (1 + OL), f , 'closed loop, with R FF')
-#    bode( (OL + P*F )/ (1 + OL) , f , 'closed loop, with R and L FF')
-#    bode( (OL*delay + P*F )/ (1 + OL) , f , 'closed loop, with R and L FF, delay compensated')
-    
-    Kp = 2.7
-    fInt = 700
-    num, den = Integrator( fInt , Ts)
-    INTEGRATOR = freqrespd( num , den ,f , Ts )
-    
-#    Use these if disturbance was input at voltage without a controller:
-#    plt.figure()
-#    bode( CL * Kp * (INTEGRATOR+1) , f )
-#    plt.figure()
-#    nyquist( CL * Kp * (INTEGRATOR+1) , f )
-    
-    
-#    num, den = lowpass2( fLP , 0.7 , Ts)
-#    LP2 = freqrespd( num , den ,f , Ts )
-
-    if (fignum == None):
-        plt.figure( fignum )
-    else:
-        plt.figure( fignum ); fignum += 1;    
-    bode( OL , f , 'Open loop')
-#    bode( P * Kp * (INTEGRATOR+1) , f , 'Open loop reconstructed')
-    
-    if (fignum == None):
-        plt.figure( fignum )
-    else:
-        plt.figure( fignum ); fignum += 1;    
-    nyquist( OL , f , 'Open loop')
-#    nyquist( P * Kp * (INTEGRATOR+1) , f , 'Open loop reconstructed')
-
-#    plt.figure()
-#    bode( 1/(P * Kp * (INTEGRATOR+1) +1) , f , 'Sensitivity reconstructed')
-#    bode( S, f , 'Sensitivity')
-
-
-def makebodesCL( Ndownsample = 1 , fignum = None):
-    DIST,f = getFFT( dist , Ndownsample )
-    VOUT,f = getFFT( Vout , Ndownsample )
-    SENS,f = getFFT( sens , Ndownsample )
-    E,f = getFFT( e , Ndownsample )
-    ENC2,f = getFFT( enc2 , Ndownsample )
-    R,f = getFFT( r , Ndownsample )
-    EMECH,f = getFFT( emech , Ndownsample )
-
-    S = R / DIST
-    OL = 1/S - 1
-    
-    Kt = 0.068 # Nm/A
-#    enc2rad = -2*np.pi/2048
-    PS = -EMECH / DIST/ Kt
-
-    Pmech = PS / S
-
-    Jmeas = 1/(abs( Pmech[20] ) * (2*np.pi*f[20])**2  )
-    Jmot = 0.0000325
-    
-    if (fignum == None):
-        plt.figure( fignum )
-    else:
-        plt.figure( fignum ); fignum += 1;   
-    bode( Pmech , f , 'Pmech [rad/Nm]')
-    
-    #plt.figure()
-    #bode( np.exp( -f * 2 * np.pi * Ts * 1j ) , f , 'time delay')
-    
-#    Kp = 4
-#    fBW = 50
-#    alpha1 = 3
-#    alpha2 = 4
-#    fInt = fBW / 6
-#    fLP = fBW * 6
-    Kp = 15
-    fBW = 100
-    alpha1 = 3
-    alpha2 = 4
-    fInt = fBW / 6
-    fLP = fBW * 8
-    
-    num, den = leadlag( fBW , alpha1, alpha2, Ts)
-    CONT = freqrespd( num , den ,f , Ts )
-    num, den = lowpass2( fLP , 0.7 , Ts)
-    LP2 = freqrespd( num , den ,f , Ts )
-    num, den = Integrator( fInt , Ts)
-    INTEGRATOR = freqrespd( num , den ,f , Ts )
-
-#    plt.figure()
-#    bode( CONT * LP2 * Pmech * Kp* (INTEGRATOR+1)  , f , 'OL reconstruct')
-
-
-#    plt.figure()
-#    bode( CONT * Kp , f , 'lead-lag')
-#    bode( LP2 , f , 'LP')
-#    bode( (INTEGRATOR+1) , f , 'INTEGRATOR')
-#    bode( CONT * LP2 * Kp * (INTEGRATOR+1) , f , 'total')
-    
-    if (fignum == None):
-        plt.figure( fignum )
-    else:
-        plt.figure( fignum ); fignum += 1;   
-#    bode( CONT * LP2 * Pmech * Kp* (INTEGRATOR+1)  , f , 'OL reconstruct')
-    bode( OL , f , 'Open loop')
-
-    if (fignum == None):
-        plt.figure( fignum )
-    else:
-        plt.figure( fignum ); fignum += 1;   
-    nyquist( OL , f , 'Open loop')
-
-    if (fignum == None):
-        plt.figure( fignum )
-    else:
-        plt.figure( fignum ); fignum += 1;   
-    bode( R / DIST  , f , 'S')
-
-#    Kp = 37.6
-#    fBW = 150
-#    alpha1 = 3
-#    alpha2 = 4
-#    fInt = fBW / 6
-#    fLP = fBW * 6
-#    
-#    num, den = leadlag( fBW , alpha1, alpha2, Ts)
-#    CONT = freqrespd( num , den ,f , Ts )
-#    num, den = lowpass2( fLP , 0.7 , Ts)
-#    LP2 = freqrespd( num , den ,f , Ts )
-#    num, den = Integrator( fInt , Ts)
-#    INTEGRATOR = freqrespd( num , den ,f , Ts )
-#
-#    plt.figure()
-#    bode( CONT * LP2 * Pmech * Kp* (INTEGRATOR+1)  , f , 'OL Tuned')
-#    
-#    plt.figure()
-#    bode( 1/(1+CONT * LP2 * Pmech * Kp* (INTEGRATOR+1))  , f , 'S Tuned')
-
-
-
 def start( ser=ser ):
     try:
         ser.close();
@@ -627,12 +365,6 @@ def setpar( signal , value , ser=ser):
     if isinstance( signal , str):
         signal = ser.signames.index( signal )
     ser.write( b'S' + struct.pack('I',  signal) + struct.pack( ser.sigtypes[signal] ,  value)  )
-
-# def setpar_ser( signal , value ):
-#     if isinstance( signal , str):
-#         signal = ser.signames.index( signal )
-#     ser.write( b'S' + struct.pack('I',  signal) + struct.pack( ser.sigtypes[signal] ,  value)  )
-
 
 
 def getsignalnames( ser ):
@@ -1284,7 +1016,7 @@ ser.write( b'o' + struct.pack('f',  0) ) # Restart controller
 setpar( 'Iq_offset_SP' , 10)
 
 #%% 
-setpar( 'Iq_offset_SP' , 0)
+setpar( 'Iq_offset_SP' , 3)
 
 #%% 
 setpar('anglechoice' ,1)
@@ -1569,8 +1301,9 @@ setpar('hfi_gain_int2' , 5*2*pi)
 setpar('hfi_V' , hfi_v)
 setpar('hfi_on' , 1)
 
-
 setpar( 'hfi_useforfeedback' , 1)
+
+setpar( 'Iq_offset_SP' , 3)
 
 #%%  
 setpar( 'Kp' , 0)
@@ -1584,15 +1317,6 @@ alpha1 = 3
 alpha2 = 3
 fInt = fBW / 8
 fLP = fBW * 7
-
-# Kp =25
-# fBW = 25
-# alpha1 = 3
-# alpha2 = 3
-# fInt = fBW / 6
-# fLP = fBW * 5
-
-
 
 setpar( 'fBW' , fBW)
 setpar( 'alpha1' , alpha1)
@@ -2505,7 +2229,7 @@ win.resize( 1000, 700)
 win.setLayout(layout)
 win.show()
 
-setpar('Ndownsample' , int( 0.002/Ts ))
+setpar('Ndownsample' , int( 0.02/Ts ))
 setpar('Nsend' , int(1e6))
 
 

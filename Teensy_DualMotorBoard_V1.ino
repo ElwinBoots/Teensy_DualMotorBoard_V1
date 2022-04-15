@@ -483,8 +483,8 @@ void Control() {
     emech1 = rmech - hfi_abs_pos / N_pp;
     emech2 = 0;
   }
-  
-  if (abs(emech1) > 0.5 & Kp > 0 )
+
+  if ((abs(emech1) > 0.5) & (Kp > 0) )
   {
     OutputOn = false;
     if (firsterror == 0) {
@@ -548,7 +548,7 @@ void Control() {
   }
 
   Iq_SP = mechcontout / (1.5 * N_pp * Lambda_m );
-  
+
   Iq_SP2 = mechcontout2 / Kt_Nm_Apeak2;
 }
 
@@ -832,7 +832,7 @@ void Transforms()
     while ( hfi_dir_int < 0) {
       hfi_dir_int += 2 * M_PI;
     }
-    
+
   }
   else {
     hfi_dir = thetaPark_obs;
@@ -1239,7 +1239,7 @@ void communicationProcess() {
       Nsend--;
     }
   }
-  if (sendall > 0 & Nsend == 0) {
+  if ((sendall > 0 ) & (Nsend == 0)) {
     if (sendall == 1) {
       for (int i = 0; i < 14; ++i)
       {
@@ -1291,6 +1291,8 @@ void processSerialIn() {
       ss_tstart = (timePrev + Ts) / 1e6; //timePrev gebruik ik niet meer?!!
     }
     if (settingByte == 'o') {
+      digitalWrite( engate , 1);
+      SPI_init();
       OutputOn = true;
       offsetVelTot = 0;
       //      encoderPos1 = 0;
@@ -1309,21 +1311,13 @@ void processSerialIn() {
       vq_int_state = 0;
       vd_int_state = 0;
 
-
       integrator2->setState(0);
       integrator_Id2->setState(0);
       integrator_Iq2->setState(0);
 
       firsterror = 0;
     }
-    if (settingByte == 'p') {
-      if (spGO == 0) {
-        spGO = 1;
-      }
-      else {
-        spGO = 0;
-      }
-    }
+
     if (settingByte == '1') {
       SPprofile->t1 = ser_in.fp;
     }
@@ -1371,82 +1365,7 @@ void processSerialIn() {
 
     if (settingByte == 'C') {
       ContSelect = ser_in.uint;
-      if ( ContSelect == 1) {
-        Kp = 23.31;
-        fBW = 100.0;
-        alpha1 = 3.0;
-        alpha2 = 4.0;
-        fInt = fBW / 6.0;
-        fLP = fBW * 8.0;
-
-        Kp2 = 23.31;
-        fBW2 = 100.0;
-        alpha1_2 = 3.0;
-        alpha2_2 = 4.0;
-        fInt2 = fBW2 / 6.0;
-        fLP2 = fBW2 * 8.0;
-      }
-      if ( ContSelect == 2) {
-        Kp = 5;
-        fBW = 30;
-        alpha1 = 3.0;
-        alpha2 = 4.0;
-        fInt = 0;
-        fLP = fBW * 8.0;
-
-        Kp2 = 5;
-        fBW2 = 30;
-        alpha1_2 = 3.0;
-        alpha2_2 = 4.0;
-        fInt2 = 0;
-        fLP2 = fBW2 * 8.0;
-      }
-      if ( ContSelect == 3) {
-        Kp2 = 8.3;
-        fBW = 100;
-        alpha1 = 3;
-        alpha2 = 3;
-        fInt = fBW / 6;
-        fLP = fBW * 8;
-
-        Kp2 = 8.3;
-        fBW2 = 100;
-        alpha1_2 = 3;
-        alpha2_2 = 3;
-        fInt2 = fBW2 / 6;
-        fLP2 = fBW2 * 8;
-
-      }
-      if ( ContSelect == 4) {
-        Kp = 150;
-        fBW = 400;
-        alpha1 = 5;
-        alpha2 = 5;
-        fInt = fBW / 8;
-        fLP = fBW * 8;
-
-        Kp2 = 150;
-        fBW2 = 400;
-        alpha1_2 = 5;
-        alpha2_2 = 5;
-        fInt2 = fBW2 / 8;
-        fLP2 = fBW2 * 8;
-      }
-      if ( ContSelect == 5) {
-        Kp = 0;
-        fBW = 400;
-        alpha1 = 5;
-        alpha2 = 5;
-        fInt = fBW / 8;
-        fLP = fBW * 8;
-
-        Kp2 = 0;
-        fBW2 = 400;
-        alpha1_2 = 5;
-        alpha2_2 = 5;
-        fInt2 = fBW2 / 8;
-        fLP2 = fBW2 * 8;
-      }
+      
       integrator = new Integrator( fInt , 1 / T);
       leadlag       = new LeadLag( fBW , alpha1 , alpha2 , 1 / T);
       lowpass        = new Biquad( bq_type_lowpass , fLP , 0.7, 1 / T);
@@ -1517,6 +1436,7 @@ float fast_atan2(float y, float x) {
 
   return r;
 }
+
 
 void trace( ) {
   for( int i = 0; i<14; i++){
@@ -2057,8 +1977,8 @@ void setpar( int isignal , binaryFloat bf ) {
 }
 
 void printSignals( unsigned int selected ) {
-  char *signalNames[] = { "Ts", "advancefactor", "i_vector_radpers", "i_vector_radpers_act", "i_vector_acc", "maxDutyCycle", "BEMFa", "BEMFb", "Ialpha_last", "Ibeta_last", "commutationoffset", "DQdisturbangle", "Vq", "Vd", "Valpha", "Vbeta", "thetawave", "Id_meas", "Iq_meas", "VSP", "commutationoffset2", "DQdisturbangle2", "Vq2", "Vd2", "Valpha2", "Vbeta2", "thetawave2", "Id_meas2", "Iq_meas2", "Va", "Vb", "Vc", "Va2", "Vb2", "Vc2", "adc2A1", "adc2A2", "one_by_sqrt3", "two_by_sqrt3", "sqrt_two_three", "sqrt3_by_2", "mechcontout", "Iout", "mechcontout2", "Iout2", "muziek_gain", "muziek_gain_V", "distval", "distoff", "ss_phase", "ss_fstart", "ss_fstep", "ss_fend", "ss_gain", "ss_offset", "ss_f", "ss_tstart", "ss_out", "T", "enc2rad", "enc2rad2", "I_max", "V_Bus", "rmech", "rdelay", "emech1", "ymech1", "rmech2", "emech2", "ymech2", "rmechoffset", "rmechoffset2", "Kp", "fBW", "alpha1", "alpha2", "fInt", "fLP", "Kp2", "fBW2", "alpha1_2", "alpha2_2", "fInt2", "fLP2", "Vout", "fIntCur", "Kp_iq", "Kp_id", "Ki_iq", "Ki_id", "vq_int_state", "vd_int_state", "Vout2", "fIntCur2", "Icontgain2", "sensCalVal1", "sensCalVal2", "sensCalVal3", "sensCalVal4", "sens1", "sens2", "sens3", "sens4", "sens1_lp", "sens2_lp", "sens3_lp", "sens4_lp", "sens1_calib", "sens2_calib", "sens3_calib", "sens4_calib", "sensBus", "Jload", "velFF", "R", "Jload2", "velFF2", "offsetVelTot", "offsetVel", "offsetVel_lp", "acc", "vel", "dist", "Ialpha", "Ibeta", "thetaPark", "thetaParkPrev", "edeltarad", "eradpers_lp", "erpm", "thetaPark_enc", "thetaPark_obs", "thetaPark_obs_prev", "thetaPark_vesc", "co", "si", "D", "Q", "tA", "tB", "tC", "Id_e", "Id_SP", "Iq_e", "Iq_SP", "ia", "ib", "ic", "acc2", "vel2", "Ialpha2", "Ibeta2", "thetaPark2", "co2", "si2", "D2", "Q2", "tA2", "tB2", "tC2", "Id_e2", "Id_SP2", "Iq_e2", "Iq_SP2", "ia2", "ib2", "ic2", "Vq_distgain", "Vd_distgain", "Iq_distgain", "Id_distgain", "mechdistgain", "maxVolt", "Vtot", "max_edeltarad", "N_pp", "Kt_Nm_Arms", "Kt_Nm_Apeak", "we", "Ld", "Lq", "Lambda_m", "observer_gain", "x1", "x2", "Kt_Nm_Arms2", "Kt_Nm_Apeak2", "we2", "Ld2", "Lq2", "Lambda_m2", "hfi_V", "hfi_V_act", "hfi_dir", "hfi_dir_int", "Valpha_offset_hfi", "Vbeta_offset_hfi", "hfi_curtot", "hfi_curorttot", "hfi_curprev", "hfi_curortprev", "hfi_gain", "hfi_pgain", "hfi_curangleest", "hfi_curangleest_simple", "hfi_dir_int2", "hfi_gain_int2", "hfi_Id_meas_low", "hfi_Iq_meas_low", "hfi_Id_meas_high", "hfi_Iq_meas_high", "delta_id", "delta_iq", "hfi_advance_factor", "hfi_abs_pos", "VqFF", "VdFF", "VqFF2", "VdFF2", "Iq_offset_SP", "Id_offset_SP", "Id_offset_SP2", "Valpha_offset", "Vbeta_offset", "Valpha2_offset", "anglechoice", "timeremain", "spNgo", "REFstatus", "incomingByte", "encoderPos1", "encoderPos2", "enccountperrev", "enccountperrev2", "SP_input_status", "spGO", "hfi_cursample", "hfi_maxsamples", "ridethewave", "ridethewave2", "sendall", "curloop", "Ndownsample", "downsample", "Novervolt", "Novervolt2", "NdownsamplePRBS", "downsamplePRBS", "ss_n_aver", "Nsend", "timePrev", "curtime", "overloadcount", "useIlowpass", "ContSelect", "firsterror", "N_pp2", "SPdir", "is_v7", "haptic", "revercommutation1", "IndexFound1", "IndexFound2", "OutputOn", "hfi_on", "hfi_usesimple", "hfi_firstcycle", "hfi_useforfeedback",  };
-  char *signalTypes[] = { "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "b", "b", "b", "b", "b", "b", "b", "b", "b", "b", "b",  };
+  const char *signalNames[] = { "Ts", "advancefactor", "i_vector_radpers", "i_vector_radpers_act", "i_vector_acc", "maxDutyCycle", "BEMFa", "BEMFb", "Ialpha_last", "Ibeta_last", "commutationoffset", "DQdisturbangle", "Vq", "Vd", "Valpha", "Vbeta", "thetawave", "Id_meas", "Iq_meas", "VSP", "commutationoffset2", "DQdisturbangle2", "Vq2", "Vd2", "Valpha2", "Vbeta2", "thetawave2", "Id_meas2", "Iq_meas2", "Va", "Vb", "Vc", "Va2", "Vb2", "Vc2", "adc2A1", "adc2A2", "one_by_sqrt3", "two_by_sqrt3", "sqrt_two_three", "sqrt3_by_2", "mechcontout", "Iout", "mechcontout2", "Iout2", "muziek_gain", "muziek_gain_V", "distval", "distoff", "ss_phase", "ss_fstart", "ss_fstep", "ss_fend", "ss_gain", "ss_offset", "ss_f", "ss_tstart", "ss_out", "T", "enc2rad", "enc2rad2", "I_max", "V_Bus", "rmech", "rdelay", "emech1", "ymech1", "rmech2", "emech2", "ymech2", "rmechoffset", "rmechoffset2", "Kp", "fBW", "alpha1", "alpha2", "fInt", "fLP", "Kp2", "fBW2", "alpha1_2", "alpha2_2", "fInt2", "fLP2", "Vout", "fIntCur", "Kp_iq", "Kp_id", "Ki_iq", "Ki_id", "vq_int_state", "vd_int_state", "Vout2", "fIntCur2", "Icontgain2", "sensCalVal1", "sensCalVal2", "sensCalVal3", "sensCalVal4", "sens1", "sens2", "sens3", "sens4", "sens1_lp", "sens2_lp", "sens3_lp", "sens4_lp", "sens1_calib", "sens2_calib", "sens3_calib", "sens4_calib", "sensBus", "Jload", "velFF", "R", "Jload2", "velFF2", "offsetVelTot", "offsetVel", "offsetVel_lp", "acc", "vel", "dist", "Ialpha", "Ibeta", "thetaPark", "thetaParkPrev", "edeltarad", "eradpers_lp", "erpm", "thetaPark_enc", "thetaPark_obs", "thetaPark_obs_prev", "thetaPark_vesc", "co", "si", "D", "Q", "tA", "tB", "tC", "Id_e", "Id_SP", "Iq_e", "Iq_SP", "ia", "ib", "ic", "acc2", "vel2", "Ialpha2", "Ibeta2", "thetaPark2", "co2", "si2", "D2", "Q2", "tA2", "tB2", "tC2", "Id_e2", "Id_SP2", "Iq_e2", "Iq_SP2", "ia2", "ib2", "ic2", "Vq_distgain", "Vd_distgain", "Iq_distgain", "Id_distgain", "mechdistgain", "maxVolt", "Vtot", "max_edeltarad", "N_pp", "Kt_Nm_Arms", "Kt_Nm_Apeak", "we", "Ld", "Lq", "Lambda_m", "observer_gain", "x1", "x2", "Kt_Nm_Arms2", "Kt_Nm_Apeak2", "we2", "Ld2", "Lq2", "Lambda_m2", "hfi_V", "hfi_V_act", "hfi_dir", "hfi_dir_int", "Valpha_offset_hfi", "Vbeta_offset_hfi", "hfi_curtot", "hfi_curorttot", "hfi_curprev", "hfi_curortprev", "hfi_gain", "hfi_pgain", "hfi_curangleest", "hfi_curangleest_simple", "hfi_dir_int2", "hfi_gain_int2", "hfi_Id_meas_low", "hfi_Iq_meas_low", "hfi_Id_meas_high", "hfi_Iq_meas_high", "delta_id", "delta_iq", "hfi_advance_factor", "hfi_abs_pos", "VqFF", "VdFF", "VqFF2", "VdFF2", "Iq_offset_SP", "Id_offset_SP", "Id_offset_SP2", "Valpha_offset", "Vbeta_offset", "Valpha2_offset", "anglechoice", "timeremain", "spNgo", "REFstatus", "incomingByte", "encoderPos1", "encoderPos2", "enccountperrev", "enccountperrev2", "SP_input_status", "spGO", "hfi_cursample", "hfi_maxsamples", "ridethewave", "ridethewave2", "sendall", "curloop", "Ndownsample", "downsample", "Novervolt", "Novervolt2", "NdownsamplePRBS", "downsamplePRBS", "ss_n_aver", "Nsend", "timePrev", "curtime", "overloadcount", "useIlowpass", "ContSelect", "firsterror", "N_pp2", "SPdir", "is_v7", "haptic", "revercommutation1", "IndexFound1", "IndexFound2", "OutputOn", "hfi_on", "hfi_usesimple", "hfi_firstcycle", "hfi_useforfeedback",  };
+  const char *signalTypes[] = { "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "b", "b", "b", "b", "b", "b", "b", "b", "b", "b", "b",  };
   int imax = 10;
   switch(selected){
     case 0: imax = 268; break;
