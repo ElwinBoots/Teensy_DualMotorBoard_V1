@@ -1,37 +1,17 @@
 #define f_pwm 30e3
 const float Ts = 1e6/(2*f_pwm); //Ts in microseconds
 
-#define FTM0_CH0_PIN 22
-#define FTM0_CH1_PIN 23
-#define FTM0_CH2_PIN  9
-#define FTM0_CH3_PIN 10
-#define FTM0_CH4_PIN  6
-#define FTM0_CH5_PIN 20
-#define FTM0_CH6_PIN 21
-#define FTM0_CH7_PIN  5
-#define FTM1_CH0_PIN  3
-#define FTM1_CH1_PIN  4
-#define FTM2_CH0_PIN 29
-#define FTM2_CH1_PIN 30
-#define FTM3_CH0_PIN  2
-#define FTM3_CH1_PIN 14
-#define FTM3_CH2_PIN  7
-#define FTM3_CH3_PIN  8
-#define FTM3_CH4_PIN 35
-#define FTM3_CH5_PIN 36
-#define FTM3_CH6_PIN 37
-#define FTM3_CH7_PIN 38
-#define TPM1_CH0_PIN 16
-#define TPM1_CH1_PIN 17
-#define FTM_PINCFG(pin) FTM_PINCFG2(pin)
-#define FTM_PINCFG2(pin) CORE_PIN ## pin ## _CONFIG
-
 #define NORM2_f(x,y)    (sqrtf(sq(x) + sq(y)))
 #define UTILS_IS_INF(x)    ((x) == (1.0 / 0.0) || (x) == (-1.0 / 0.0))
 #define UTILS_IS_NAN(x)   ((x) != (x))
 #define UTILS_NAN_ZERO(x) (x = UTILS_IS_NAN(x) ? 0.0 : x)
 
 int anglechoice = 0;
+float advancefactor;
+
+float i_vector_radpers;
+float i_vector_radpers_act;
+float i_vector_acc;
 
 bool SPdir = 1;
 
@@ -187,7 +167,7 @@ Integrator *integrator = new Integrator( fInt , 1 / T);
 LeadLag *leadlag       = new LeadLag( fBW , alpha1 , alpha2 , 1 / T);
 Biquad *lowpass        = new Biquad( bq_type_lowpass , fLP , 0.7, 1 / T);
 
-Biquad *lowpass_eradpers   = new Biquad( bq_type_lowpass , 1000 , 0.7, 1 / T);
+Biquad *lowpass_eradpers   = new Biquad( bq_type_lowpass , 50 , 0.7, 1 / T);
 
 //Biquad *notch          = new Biquad( bq_type_notch , 2315.0, -20.0, 0.1 , 1 / T );
 
@@ -284,6 +264,7 @@ float eradpers_lp;
 float erpm;
 float thetaPark_enc;
 float thetaPark_obs;
+float thetaPark_obs_prev;
 float thetaPark_vesc;
 float co;
 float si;
@@ -326,9 +307,14 @@ float Iq_distgain;
 float Id_distgain;
 float mechdistgain;
 
+float maxVolt;
+float Vtot;
+
+float max_edeltarad = 0.25f * M_PI;
+
 unsigned int ContSelect = 1; 
 unsigned int firsterror = 0;
-unsigned int N_pp = 4; //Number of pole pairs (to be implemented in main code still!)
+float N_pp = 4; //Number of pole pairs 
 
 //Motor parameters
 float Kt_Nm_Arms = 0.103; //Motor Torque constant [Nm/Arms]
@@ -353,7 +339,9 @@ float Lambda_m2 = Kt_Nm_Arms2 / (sqrt(2) * 1.5 * N_pp2 ); //[Weber] Note: on the
 
 bool hfi_on = false;
 float hfi_V = 0;
+float hfi_V_act;
 float hfi_dir = 0;
+float hfi_dir_int;
 float Valpha_offset_hfi;
 float Vbeta_offset_hfi;
 int hfi_cursample;
@@ -362,6 +350,23 @@ float hfi_curtot;
 float hfi_curorttot;
 float hfi_curprev;
 float hfi_curortprev;
+float hfi_gain = 100 * 2 * M_PI;
+float hfi_pgain = 0;
+float hfi_curangleest;
+float hfi_curangleest_simple;
+bool hfi_usesimple = false;
+float hfi_dir_int2;
+float hfi_gain_int2;
+float hfi_Id_meas_low = 0;
+float hfi_Iq_meas_low = 0;
+float hfi_Id_meas_high = 0;
+float hfi_Iq_meas_high = 0;
+float delta_id;
+float delta_iq;
+float hfi_advance_factor;
+bool hfi_firstcycle = true;
+float hfi_abs_pos;
+bool hfi_useforfeedback = false;
 
 float VqFF;
 float VdFF;
@@ -369,6 +374,7 @@ float VdFF;
 float VqFF2;
 float VdFF2;
 
+float Iq_offset_SP;
 float Id_offset_SP;
 float Id_offset_SP2;
 
