@@ -57,7 +57,7 @@ motor = 'motor1'
 global ser
 
 try:
-    ser = serial.Serial( com  , timeout= 0.0001 )  # open serial port
+    ser = serial.Serial( com  , timeout= 0.1)  # open serial port
     print(ser.name)         # check which port was really used
 except:
     print(ser.name)         # check which port was really used
@@ -569,7 +569,7 @@ def res():
 ser = start( ser )
 
 
-
+setTrace( ser.signames[0:30] )
 
 #%% Find commutation offset M1
 ser = start( ser )
