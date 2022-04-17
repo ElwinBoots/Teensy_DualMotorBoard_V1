@@ -53,7 +53,7 @@ for i = 1:length(textsplit)
 end
 
 txt = { 'void trace( ) {'};
-txt = [txt '  for( int i = 0; i<14; i++){'];
+txt = [txt '  for( int i = 0; i < n_trace; i++){'];
 txt = [txt '    int isignal = tracearray[i];'];
 jsignal = 0;
 txt = [txt ['    switch( isignal ){' ]];

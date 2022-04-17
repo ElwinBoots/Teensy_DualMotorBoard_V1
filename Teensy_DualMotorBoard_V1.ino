@@ -1237,7 +1237,7 @@ void utils_step_towards(float * value, float goal, float step) {
 }
 
 void trace( ) {
-  for( int i = 0; i<14; i++){
+  for( int i = 0; i < n_trace; i++){
     int isignal = tracearray[i];
     switch( isignal ){
       case   0: bf.fp   = Ts; break;

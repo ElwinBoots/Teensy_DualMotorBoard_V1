@@ -41,8 +41,9 @@ from PyQt5.QtWidgets import (
 f_pwm = 30e3
 Ts = 1/(2*f_pwm)
 
-n_trace = 14; #Was 10. USB packets are up to 2048 kB. 4 B per value -> 512 values. 16 (14 + 2 overhead)values fit exactly 32 times in this 512 values. 
-# n_trace = 30; 
+# n_trace = 14; #Was 10. USB packets are up to 2048 kB. 4 B per value -> 512 values. 16 (14 + 2 overhead)values fit exactly 32 times in this 512 values. 
+n_trace = 30; 
+# n_trace = 62;  #Too high, current plant prbs measurement shows it is not always in time
 
 # com = 'COM10' 1
 com = 'COM5'
@@ -207,7 +208,8 @@ def readData(N , ser=ser):
         if max( np.diff(n , axis=0) ) > Ndownsample:
             print('data seems BAD (diff n > 1)')
         elif (max(abs((np.diff( t) - Ts*Ndownsample))) < 5e-6) &  (np.abs(Ts*Ndownsample -fit[0]) < 5e-6):
-            print('data seems OK')
+            # print('data seems OK')
+            pass
         else:
             print('data seems BAD, Ts not OK')
             plt.figure(100)
@@ -392,10 +394,11 @@ def CL( f_bw = 1e3 , ser=ser):
     # Lq = 235e-6
     # R = 0.33
 
-    # Ld = 5.1e-6 
-    # Lq = 5.3e-6 
-    # R = 0.069      
-    # setpar('Lambda_m' , 60 / (sqrt(3) * pi * 2200 * 2 * 7) )
+    Ld = 5.1e-6 
+    Lq = 5.3e-6 
+    R = 0.069      
+    setpar('Lambda_m' , 60 / (sqrt(3) * pi * 2200 * 2 * 7) )
+    setpar('N_pp' ,  7)
     
     # Lq = 630e-6 
     # Ld = 530e-6 
@@ -403,11 +406,11 @@ def CL( f_bw = 1e3 , ser=ser):
     # setpar('Lambda_m' , 0.0215 )
     
     # Roto max 100cc
-    Ld = 6e-6  
-    Lq = 10e-6
-    R = 0.055
-    setpar('Lambda_m' , 0.0042 )
-    setpar('N_pp' ,  10)
+    # Ld = 6e-6  
+    # Lq = 10e-6
+    # R = 0.055
+    # setpar('Lambda_m' , 0.0042 )
+    # setpar('N_pp' ,  10)
     
     # TimB Pancake motor
     # Ld = 24e-6  
@@ -732,8 +735,8 @@ setpar('I_max' , 10)
 setpar('anglechoice' ,3)
 # setpar('anglechoice' ,100)
 
-Ki = 200*2*pi
-hfi_v = 2
+Ki = 500*2*pi
+hfi_v = 0.2
 
 setpar('hfi_usesimple' , 1)
 setpar('hfi_gain' , Ki )

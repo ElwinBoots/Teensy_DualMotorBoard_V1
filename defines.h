@@ -1,4 +1,5 @@
 #define f_pwm 30e3
+#define n_trace 30
 const float Ts = 1e6/(2*f_pwm); //Ts in microseconds
 
 #define NORM2_f(x,y)    (sqrtf(sq(x) + sq(y)))
@@ -11,6 +12,7 @@ const float Ts = 1e6/(2*f_pwm); //Ts in microseconds
 #define engate 34
 //#define PRREG(x) Serial.print(#x" 0x"); Serial.println(x,HEX)
 #define SSpin 35
+
 
 int anglechoice = 0;
 float advancefactor;
