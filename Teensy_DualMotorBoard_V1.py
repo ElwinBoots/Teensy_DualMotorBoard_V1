@@ -394,14 +394,14 @@ def CL( f_bw = 1e3 , ser=ser):
     # Lq = 235e-6
     # R = 0.33
 
-    Ld = 5.1e-6 
-    Lq = 5.3e-6 
-    R = 0.069      
-    setpar('Lambda_m' , 60 / (sqrt(3) * pi * 2200 * 2 * 7) )
-    setpar('N_pp' ,  7)
+    # Ld = 5.1e-6 
+    # Lq = 5.3e-6 
+    # R = 0.069      
+    # setpar('Lambda_m' , 60 / (sqrt(3) * pi * 2200 * 2 * 7) )
+    # setpar('N_pp' ,  7)
     
-    # Lq = 630e-6 
     # Ld = 530e-6 
+    # Lq = 630e-6 
     # R = 0.264  
     # setpar('Lambda_m' , 0.0215 )
     
@@ -418,6 +418,13 @@ def CL( f_bw = 1e3 , ser=ser):
     # R = 0.07
     # setpar('Lambda_m' , 0.0027 )
     # setpar('N_pp' ,  12) $Not checked!
+
+    #Trampa 160KV
+    Ld = 33e-6 
+    Lq = 53e-6     
+    R = 0.0735     
+    setpar('Lambda_m' , 0.005405 )
+    setpar('N_pp' ,  7)
 
     setpar( 'Lq' , Lq , ser)
     setpar( 'Ld' , Ld , ser)
@@ -455,96 +462,6 @@ def OL( ):
     setpar( 'Ki_iq' , 0  ) # Current loop Ki
     setpar( 'Kp_id' , 0  ) # Current loop Kp
     setpar( 'Ki_id' , 0  ) # Current loop Ki
-
-
-#CLose the loop
-def CL2(ser=ser):
-    ser = start( ser )
-    if (getsig( 'IndexFound1' , ser )+ getsig( 'IndexFound2' ,ser) ) < 2:
-        setpar('ridethewave' , 1 , ser)
-        setpar('ridethewave2' , 1 , ser)
-        time.sleep( 0.2 )
-        
-        setpar( 'commutationoffset2',0)
-        
-        setpar('Valpha2_offset' , 2)
-        time.sleep( 0.5 )
-        
-        offset = getsig('thetaPark2')
-        
-        setpar('Valpha2_offset' , 0)
-        setpar( 'commutationoffset2', -offset ) 
-        time.sleep( 1 )
-    if (getsig( 'IndexFound1' , ser )+ getsig( 'IndexFound2' ,ser) ) < 2:
-        print('index not found')
-    else:  
-        setpar( 'commutationoffset',0.75) #Motor 1
-        # setpar( 'commutationoffset2',3.05) #Motor 2
-        # setpar( 'commutationoffset2',0) #Motor 2 (maxon)
-
-        Lq = 2.6e-4 
-        Ld = 2.2e-4
-        R = 0.33
-        setpar( 'Lq' , Lq , ser)
-        setpar( 'Ld' , Ld , ser)
-        setpar( 'R' , R , ser)
-        setpar('useIlowpass' , 0 , ser)
-        
-        Lq2 = 0.0002143
-        Ld2 = 0.00023500
-        R2 = 0.55
-        setpar( 'Lq2' , Lq2 , ser)
-        setpar( 'Ld2' , Ld2 , ser)
-        
-        Jload = 0 #kgm²
-        vFF = 0 #Nm/(rad/s)
-        setpar( 'Jload' ,  Jload  , ser)
-        setpar( 'velFF' ,  vFF  , ser)
-        setpar( 'rmechoffset' , 0 , ser)
-        setpar( 'rmechoffset' , -getsig( 'emech1'  , ser) , ser)
-        getsig('emech1'  , ser)
-        
-        setpar( 'rmechoffset2' , 0 , ser)
-        setpar( 'rmechoffset2' , -getsig( 'emech2'  , ser) , ser)
-        getsig('emech2'  , ser)
-        # setpar( 'Icontgain' , 1.54 ) # Current loop gain
-        # ser.write( b'9' + struct.pack('f',  500) ) # Current loop integrator frequency
-        
-        setpar( 'Icontgain' , 3  , ser) # Current loop gain
-        ser.write( b'9' + struct.pack('f',  300) ) # Current loop integrator frequency
-        
-        setpar( 'Icontgain2' , Lq2*1000*2*pi  , ser) # Current loop 2 gain
-        ser.write( b'0' + struct.pack('f',  R2/Lq2/2/pi ) ) # Current loop 2 integrator frequency
-        
-        # ser.write( b'C' + struct.pack('I',  4) ) # 300 Hz BW
-        # ser.write( b'C' + struct.pack('I',  3) ) # 300 Hz BW
-        
-        fBW = 100
-        setpar( 'fBW' , fBW)
-        setpar( 'alpha1' , 3)
-        setpar( 'alpha2' , 4)
-        setpar( 'fInt' , fBW / 6)
-        setpar( 'fLP' , fBW * 8)
-        setpar( 'Kp' , 23.3)
-               
-        fBW = 70
-        setpar( 'fBW2' , fBW)
-        setpar( 'alpha1_2' , 3)
-        setpar( 'alpha2_2' , 3)
-        setpar( 'fInt2' , fBW / 6)
-        setpar( 'fLP2' , fBW * 8)
-        setpar( 'Kp2' , 3.84)
-        setpar( 'Kp2' , 0)
-
-        ser.write( b'C' + struct.pack('I',  0) ) # Set controllers
-        
-        # setpar('encoderPos2offset' , 0 , ser)
-        # setpar('encoderPos2offset' , int(getsig('encoderPos1') -getsig('encoderPos2') ))
-        
-#        ser.write( b'C' + struct.pack('I',  2) ) # Low BW
-        #ser.write( b'C' + struct.pack('I',  3) ) # Very low BW
-#        ser.write( b'C' + struct.pack('I',  4) ) # 300 Hz BW
-    
 
 def prepSP(  p , v , a , j , ser=ser ):
     t1, t2, t3, jd = make3.make3( p , v , a , j , Ts );
@@ -637,8 +554,8 @@ setpar('Lambda_m' , 1 )
 vmax = 400 #ERPM
 
 setpar('anglechoice' ,99 )
-setpar('Id_offset_SP' , 12)
-setpar('i_vector_acc' , 2)
+setpar('Id_offset_SP' , 10)
+setpar('i_vector_acc' , 10)
 setpar('i_vector_radpers' , vmax / 60 *2*pi)
 
 while abs(getsig( 'i_vector_radpers_act')) < 0.99 * vmax / 60 *2*pi:
@@ -672,14 +589,9 @@ for i in range(len(data[1][0,:])):
 #%%
 a = plt.figure()
 #%%
-# setpar('Lambda_m' , 1 * 60 / (sqrt(3) * pi * 2200 * 2 * 7) )
-# setpar('Lambda_m' , 0.0215 )
-
-# setpar('commutationoffset' , -0.741415 )
-
 
 setpar('I_max' , 10)
-setpar('maxDutyCycle' , 0.8)
+setpar('maxDutyCycle' , 0.99)
 
 setpar('anglechoice' ,1 )
 setpar('advancefactor' , 0)
@@ -694,7 +606,7 @@ signals = [ 'Iq_offset_SP'  , 'Iq_meas' , 'Id_meas'  , 'Vq' , 'Vd' , 'Va' , 'Vb'
 
 setTrace( signals )
 
-setpar( 'Iq_offset_SP' , 5)
+setpar( 'Iq_offset_SP' , 3)
 # time.sleep(0.1)
 # setpar( 'Iq_offset_SP' , 7)
 
@@ -729,23 +641,22 @@ CL()
 
 #%% HFI
 
-setpar('maxDutyCycle' , 0.7)
-setpar('I_max' , 10)
+# setpar('maxDutyCycle' , 0.7)
+# setpar('I_max' , 10)
 
 setpar('anglechoice' ,3)
 # setpar('anglechoice' ,100)
 
 Ki = 500*2*pi
-hfi_v = 0.2
+hfi_v = 3
 
-setpar('hfi_usesimple' , 1)
 setpar('hfi_gain' , Ki )
 setpar('hfi_gain_int2' ,1*2*pi)
 setpar('hfi_V' , hfi_v)
 setpar('hfi_on' , 1)
 
 
-signals = [ 'Id_meas', 'Iq_meas' , 'Vd' , 'Vq' , 'thetaPark_enc'  , 'thetaPark_obs' , 'hfi_curangleest' , 'hfi_dir' ,'eradpers_lp' , 'hfi_curangleest_simple' , 'delta_id' ,'delta_iq' , 'hfi_abs_pos']
+signals = [ 'Id_meas', 'Iq_meas' , 'Vd' , 'Vq' , 'thetaPark_enc'  , 'thetaPark_obs' , 'hfi_curangleest' , 'hfi_dir' ,'eradpers_lp' , 'delta_id' ,'delta_iq' , 'hfi_abs_pos']
 setTrace( signals )
 
 
@@ -756,7 +667,7 @@ setpar( 'Iq_offset_SP' , 5)
 
 # hfi_v = 5
 # setpar('hfi_V' , hfi_v)
-df = trace( 1 ) 
+df = trace( 2 ) 
 
 
 setpar( 'Iq_offset_SP' , 0)
@@ -1036,7 +947,7 @@ signals = [ 'D', 'Q' , 'Id_meas' , 'Iq_meas', 'Id_meas2' , 'Iq_meas2' , 'dist' ,
 setTrace( signals )
 
 
-gain = 0.5
+gain = 2
 setpar('Vq_distgain' , 1)
 setpar('Vd_distgain' , 1)
 setpar('Iq_distgain' , 0)
@@ -1111,16 +1022,20 @@ plt.ylim([ 100 , 300])
 plt.title('Ld [uH]')
 
 plt.figure(6)
-plt.plot( f , np.abs( 1/(PD * f * 2 * np.pi)  ) *1e6 )
-plt.plot( f , np.abs( 1/(PQ * f * 2 * np.pi)  ) *1e6 )
-plt.xlim([ 1e3, 10e3])
-# plt.ylim([ 4 , 6])
+plt.plot( f , np.abs( 1/(PD * f * 2 * np.pi)  ) *1e6 / np.sinc( f * Ts) ) #Correction for zero order hold
+plt.plot( f , np.abs( 1/(PQ * f * 2 * np.pi)  ) *1e6 / np.sinc( f * Ts) ) #Correction for zero order hold
+plt.xlim([ 1e3, 30e3])
+plt.ylim([ 0 , 60])
 plt.title('L [uH]')
 plt.legend( ['Ld','Lq'] )
 plt.grid()
 plt.xlabel('Frequency [Hz]')
 
+
+np.sinc( f * Ts)
+
 #%%
+
 
 Lq = 5e-6 
 Ld = 5e-6 
@@ -1231,6 +1146,8 @@ bode( plantd  , f , 'plant d')
 
 
 
+
+
 #%%
 ser = start( ser )
 CL()
@@ -1279,6 +1196,44 @@ setpar( 'fLP' , fBW * 6)
 setpar( 'Kp' , 0.3)
 
 ser.write( b'C' + struct.pack('I',  0) ) # Set controllers
+
+#%% Trampa 160kv
+ser = start( ser )
+CL(2e3)
+
+setpar('anglechoice' ,3)
+Ki =500*2*pi
+hfi_v = 2
+
+setpar('hfi_gain' , Ki )
+setpar('hfi_gain_int2' , 5*2*pi)
+setpar('hfi_V' , hfi_v)
+setpar('hfi_on' , 1)
+
+setpar( 'hfi_useforfeedback' , 1)
+
+#%%  
+setpar( 'Kp' , 0)
+setpar( 'rmechoffset' , 0 , ser)
+setpar( 'rmechoffset' , -getsig( 'emech1'  , ser) , ser)
+getsig('emech1'  , ser)
+
+Kp =0.83
+fBW = 10
+alpha1 = 3
+alpha2 = 3
+fInt = fBW / 8
+fLP = fBW * 7
+
+setpar( 'fBW' , fBW)
+setpar( 'alpha1' , alpha1)
+setpar( 'alpha2' , alpha2)
+setpar( 'fInt' , fInt)
+setpar( 'fLP' ,  fLP)
+setpar( 'Kp' , Kp)
+
+ser.write( b'C' + struct.pack('I',  0) ) # Set controllers
+
 
 #%% Rotomax 100CC
 ser = start( ser )
@@ -1367,7 +1322,7 @@ bode( Pmech2 , f , 'Plant')
 # fLP = fBW * 8
 
 Kp =15
-fBW = 15
+fBW = 10
 alpha1 = 3
 alpha2 = 3
 fInt = fBW / 8
@@ -1380,7 +1335,7 @@ LP2 = freqrespd( num , den ,f , Ts )
 num, den = Integrator( fInt , Ts)
 INTEGRATOR = freqrespd( num , den ,f , Ts )
 
-# Kp = 1/np.abs(np.interp( fBW , f, CONT * LP2 * Pmech *  (INTEGRATOR+1)))
+Kp = 1/np.abs(np.interp( fBW , f, CONT * LP2 * Pmech *  (INTEGRATOR+1)))
 
 plt.figure(1)
 # bode( DIST/TORQUE - 1 , f)
@@ -1409,12 +1364,16 @@ ser.write( b'o' + struct.pack('f',  0) ) # Restart controller
 makebodesOL( Ndownsample , 1)
 
 #%% Overall FRF measurement PRBS
-NdownsamplePRBS = 50
+NdownsamplePRBS = 10
 N = 10*NdownsamplePRBS*2047 + 1/Ts
 
-setpar( 'offsetVel' , 1*np.pi)
+vel = 30*np.pi
+for i in np.arange( 0 , 1 , 0.01):
+    setpar( 'offsetVel' ,  vel*i )
+    time.sleep( 0.01)
+
 setpar( 'NdownsamplePRBS' , NdownsamplePRBS)
-setpar( 'distval' , 0.10) #disturbance amplitude
+setpar( 'distval' , 0.1) #disturbance amplitude
 setpar('Vq_distgain' , 0)
 setpar('Vd_distgain' , 0)
 setpar('Iq_distgain' , 0)
@@ -1424,7 +1383,9 @@ setpar('mechdistgain' , 1)
 signals = [ 'mechcontout' , 'D', 'Q' , 'Id_meas' , 'Iq_meas' , 'dist' , 'emech1' , 'emech2' , 'Vq' ,'ymech1' , 'mechcontout2' , 'hfi_abs_pos']
 setTrace( signals )
 t,s = readData( int(N) )
-setpar( 'offsetVel' , 0.0*np.pi)
+for i in np.arange( 1 , 0 , -0.01):
+    setpar( 'offsetVel' ,  vel*i )
+    time.sleep( 0.05)
 setpar( 'distval' , 0) #disturbance amplitude
 setpar( 'NdownsamplePRBS' , 1) #Downsampling
 

@@ -1087,20 +1087,20 @@ void communicationProcess() {
   }
   if ((sendall > 0 ) & (Nsend == 0)) {
     if (sendall == 1) {
-      for (int i = 0; i < 14; ++i)
+      for (int i = 0; i < n_trace; ++i)
       {
         tracearray[i] = i;
       }
     }
     if (sendall > 1) {
-      for (int i = 0; i < 14; ++i)
+      for (int i = 0; i < n_trace; ++i)
       {
-        tracearray[i] += 14;
+        tracearray[i] += n_trace;
       }
     }
     trace( );
     sendall++;
-    if ((sendall - 1) * 14 >= 204 ) {
+    if ((sendall - 1) * n_trace >= 268 ) {
       sendall = 0;
     }
   }
