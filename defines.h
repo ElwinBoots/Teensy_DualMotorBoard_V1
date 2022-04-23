@@ -163,6 +163,9 @@ float ymech2;
 float rmechoffset;
 float rmechoffset2;
 
+Biquad *lowpass_sensbus   = new Biquad( bq_type_lowpass , 500 , 0.7, 1 / T);
+float sensBus_lp;
+
 // Controller 1
 float Kp = 0;
 float fBW = 50.0;
@@ -377,6 +380,9 @@ float hfi_advance_factor;
 bool hfi_firstcycle = true;
 float hfi_abs_pos;
 bool hfi_useforfeedback = false;
+float hfi_half_int_prev;
+bool hfi_use_lowpass;
+Biquad *hfi_lowpass = new Biquad( bq_type_lowpass , 2000 , 0.707, 1 / T);
 
 float VqFF;
 float VdFF;

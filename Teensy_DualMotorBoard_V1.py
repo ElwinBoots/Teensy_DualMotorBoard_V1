@@ -581,7 +581,7 @@ data = tracesignal(['BEMFa' , 'BEMFb'] , 2)
 
 #%%
 ser = start()
-data = tracesignal(['sens1' , 'sens2', 'sensBus' , 'sens3' , 'sens4'] , 1 , plot=False)
+data = tracesignal(['sens1' , 'sens2'] , 0.3 , plot=False)
 for i in range(len(data[1][0,:])):
     fftpsd(data[1][:,i])
 
@@ -1155,7 +1155,7 @@ CL()
 setpar('anglechoice' ,3)
 # setpar('anglechoice' ,100)
 
-Ki =200*2*pi
+Ki =500*2*pi
 hfi_v = 0.5
 
 setpar('hfi_usesimple' , 1)
@@ -1199,10 +1199,12 @@ ser.write( b'C' + struct.pack('I',  0) ) # Set controllers
 
 #%% Trampa 160kv
 ser = start( ser )
-CL(2e3)
+CL(200)
 
+setpar('hfi_use_lowpass' , 1)
 setpar('anglechoice' ,3)
-Ki =500*2*pi
+
+Ki =400*2*pi
 hfi_v = 2
 
 setpar('hfi_gain' , Ki )
@@ -1218,8 +1220,8 @@ setpar( 'rmechoffset' , 0 , ser)
 setpar( 'rmechoffset' , -getsig( 'emech1'  , ser) , ser)
 getsig('emech1'  , ser)
 
-Kp =0.83
-fBW = 10
+Kp =4.8
+fBW = 20
 alpha1 = 3
 alpha2 = 3
 fInt = fBW / 8
@@ -1321,8 +1323,8 @@ bode( Pmech2 , f , 'Plant')
 # fInt = fBW / 8;
 # fLP = fBW * 8
 
-Kp =15
-fBW = 10
+Kp =4.8
+fBW = 20
 alpha1 = 3
 alpha2 = 3
 fInt = fBW / 8
@@ -1341,6 +1343,11 @@ plt.figure(1)
 # bode( DIST/TORQUE - 1 , f)
 # bode( CONT * LP2 * Pmech * Kp* (INTEGRATOR+1)  , f , 'OL reconstruct')
 bode( CONT * LP2 * Pmech * Kp* (INTEGRATOR+1)  , f , 'OL reconstruct')
+
+plt.figure(2)
+# bode( DIST/TORQUE - 1 , f)
+# bode( CONT * LP2 * Pmech * Kp* (INTEGRATOR+1)  , f , 'OL reconstruct')
+nyquist( CONT * LP2 * Pmech * Kp* (INTEGRATOR+1)  , f , 'OL reconstruct')
 
 
 
@@ -1367,13 +1374,13 @@ makebodesOL( Ndownsample , 1)
 NdownsamplePRBS = 10
 N = 10*NdownsamplePRBS*2047 + 1/Ts
 
-vel = 30*np.pi
+vel = 20*np.pi
 for i in np.arange( 0 , 1 , 0.01):
     setpar( 'offsetVel' ,  vel*i )
     time.sleep( 0.01)
 
 setpar( 'NdownsamplePRBS' , NdownsamplePRBS)
-setpar( 'distval' , 0.1) #disturbance amplitude
+setpar( 'distval' , 0.2) #disturbance amplitude
 setpar('Vq_distgain' , 0)
 setpar('Vd_distgain' , 0)
 setpar('Iq_distgain' , 0)
@@ -1414,6 +1421,9 @@ bode( DIST/TORQUE - 1 , f)
 
 plt.figure(3)
 bode( Pmech , f)
+
+plt.figure(3)
+bode( Pmech * (f*2*pi)**2, f)
 # bode( Pmech3 , f)
 
 
@@ -1694,12 +1704,10 @@ ser = start( ser )
 #%%
 plt.close('all')
 #%% Setpoint
-# Jload = 0.0008
-# vFF = 0.002
+Jload = 0.0003162277 #kgm²
+setpar( 'Jload' ,  Jload )
 
-# Jload = 6.77e-5 #kgm²
-# vFF = 7e-5  #Nm/(rad/s)
-
+setpar('I_max' , 20)
 
 # setpar( 'Jload' ,  Jload )
 # setpar( 'velFF' , vFF )
@@ -1707,93 +1715,42 @@ plt.close('all')
 #getsig( 'Jload' )
 #getsig( 'velFF' )
 
-# 12.5 ms
-# p = 0.1*np.pi
-# v = 150*np.pi
-# a = 3000*np.pi
-# j = 4000000*np.pi
-# Ts = 50e-6
-
-# 9 ms
-#p = 0.05*np.pi
-#v = 150*np.pi
-#a = 3000*np.pi
-#j = 4000000*np.pi
-#Ts = 50e-6
-
-# p = 2*np.pi
-# v = 150*np.pi
-# a = 1100*np.pi
-# j = 500000*np.pi
-#Ts = 50e-6
-
 p = 2*np.pi
-v = 1000*np.pi
-a = 25*np.pi
-j = 40000*np.pi
-Nsp = 1
-
-# p = np.pi/2
-# v = 120
-# a = 10000
-# j = 1.5e7
-# Nsp = 10
-
-
-# p = 2*2*pi
-# v = 25*2*pi
-# a = 1000*2*pi
-# j = 1000000*2*pi
-# Nsp = 5
-
-
-# p = 20*2*pi
-# v = 65*2*pi
-# a = 500*2*pi
-# j = 500000*2*pi
-# Nsp = 1
-
-# p = 50
-# v = 150
-# a = 11000
-# j = 1.5e7
-# Nsp = 10
-
-# p = pi/2*10
-# v = 25*2*pi
-# a = 2500*2*pi
-# j = 400000*2*pi
-# Nsp = 10
-
-# p = pi/2
-# v = 20*2*pi
-# a = 1750*2*pi
-# j = 2400000*2*pi
-# Nsp = 10
+v = 50*np.pi
+a = 1000*np.pi
+j = 80000*np.pi
+Nsp = 3
 
 [t1, t2, t3, jd] = prepSP(  p , v , a , j )
 
 
 # signals = [ 'rmech', 'ymech1' , 'emech1' , 'vel' , 'Iq_meas', 'Id_meas' , 'acc' , 'Va', 'Vb', 'Vc' , 'mechcontout', 'sensBus']
-signals = [ 'rmech', 'ymech1' , 'emech1' , 'vel' , 'Iq_meas2', 'Id_meas2' , 'acc' , 'Va2', 'Vb2', 'Vc2' , 'mechcontout', 'sensBus']
+signals = [ 'rmech', 'ymech1' , 'emech1' , 'vel' , 'Iq_meas', 'Id_meas' , 'acc' , 'Va2', 'Vb2', 'Vc2' , 'mechcontout', 'sensBus','sensBus_lp']
 setTrace( signals )
 
-delay = 0.2
-for p in np.linspace( 0.1 , 1 , 5):
-    [t1, t2, t3, jd] = prepSP(  p , v , a , j )
-    setpar('SPdir' , 1)
-    setpar('spNgo',Nsp)
-    while (getsig('REFstatus') > 0):
-        bla = 1;
-    time.sleep(delay)
-    setpar('SPdir' , 0)
-    setpar('spNgo',Nsp)
-    while (getsig('REFstatus') > 0):
-        bla = 1;
-    time.sleep(delay)
+# delay = 0.2
+# for p in np.linspace( 0.1 , 2*pi , 5):
+#     [t1, t2, t3, jd] = prepSP(  p , v , a , j )
+#     setpar('SPdir' , 1)
+#     setpar('spNgo',Nsp)
+#     while (getsig('REFstatus') > 0):
+#         bla = 1;
+#     time.sleep(delay)
+#     setpar('SPdir' , 0)
+#     setpar('spNgo',Nsp)
+#     while (getsig('REFstatus') > 0):
+#         bla = 1;
+#     time.sleep(delay)
 
-# N = int( (Nsp*(0.01+4*t1+2*t2+t3)+0.1) / Ts ) 
-# t,s = readData( int(N) )
+setpar('SPdir' , 1)
+setpar('spNgo',Nsp)
+df = trace(Nsp*(0.01+4*t1+2*t2+t3)+0.1)  
+
+# df.filter(regex='sensBus').plot()
+df.filter(regex='[ry]mech').plot()
+# df.filter(regex='Iq').plot()
+# df.filter(regex='vel').plot()
+
 
 #%%
 df = trace( (Nsp*(0.01+4*t1+2*t2+t3)+0.1) )
