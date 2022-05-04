@@ -410,8 +410,9 @@ void GenSetpoint() {
   rmech2 += rmechoffset2;
 
   acc = SPprofile->aref;
-  vel = SPprofile->vref;
-
+  vel = SPprofile->vref + offsetVelTot;
+  we = vel * N_pp;  //Electrical speed [rad/s], based on setpoint
+  
   acc2 = -acc;
   vel2 = -vel;
 
@@ -768,17 +769,44 @@ void Transforms()
     }
     delta_id = hfi_Id_meas_high - hfi_Id_meas_low;
     delta_iq = hfi_Iq_meas_high - hfi_Iq_meas_low;
-    //hfi_curangleest = 0.5 * atan2( -delta_iq  , delta_id - 0.5 * hfi_V * T * ( 1 / Ld + 1 / Lq ) ); //Complete calculation (not needed because error is always small due to feedback)
-    hfi_curangleest =  delta_iq / (hfi_V * T * ( 1 / Lq - 1 / Ld ) );
-    
-    float hfi_error = -hfi_curangleest; //Negative feedback
+    //hfi_curangleest = 0.25f * atan2( -delta_iq  , delta_id - 0.5 * hfi_V * T * ( 1 / Ld + 1 / Lq ) ); //Complete calculation (not needed because error is always small due to feedback). 0.25 comes from 0.5 because delta signals are used and 0.5 due to 2theta (not just theta) being in the sin and cos wave.
+    if(hfi_method ==1 || hfi_method ==3 ){
+      hfi_curangleest =  0.5f * delta_iq / (hfi_V * T * ( 1 / Lq - 1 / Ld ) ); //0.5 because delta_iq is twice the iq value
+    }
+    else if(hfi_method ==2 || hfi_method == 4){
+      if (is_v7) {
+        hfi_curangleest =  (Iq_meas - Iq_SP) / (hfi_V * T * ( 1 / Lq - 1 / Ld ) );
+      }
+      else {
+        hfi_curangleest =  (Iq_meas - Iq_SP) / (-hfi_V * T * ( 1 / Lq - 1 / Ld ) );
+      }
+    }
+    hfi_error = -hfi_curangleest; //Negative feedback
     if (hfi_use_lowpass){
       hfi_error = hfi_lowpass->process( hfi_error );
     }
     hfi_dir_int += T * hfi_error * hfi_gain_int2; //This the the double integrator
 
     float hfi_half_int = hfi_gain * 0.5f * T * hfi_error;
-    hfi_dir += hfi_half_int + hfi_half_int_prev + hfi_dir_int; //This is the integrator and the double integrator
+    hfi_contout += hfi_half_int + hfi_half_int_prev + hfi_dir_int; //This is the integrator and the double integrator
+    if(hfi_method ==3 || hfi_method == 4){
+      hfi_ffw = we * T;
+      hfi_contout += hfi_ffw; //This is the feedforward
+    }
+    while ( hfi_contout >= 2 * M_PI) {
+      hfi_contout -= 2 * M_PI;
+    }
+    while ( hfi_contout < 0) {
+      hfi_contout += 2 * M_PI;
+    }
+    while ( hfi_contout >= 2 * M_PI) {
+      hfi_contout -= 2 * M_PI;
+    }
+    while ( hfi_contout < 0) {
+      hfi_contout += 2 * M_PI;
+    }
+    
+    hfi_dir = hfi_contout + dist * hfi_distgain;
     
     while ( hfi_dir >= 2 * M_PI) {
       hfi_dir -= 2 * M_PI;
@@ -796,6 +824,7 @@ void Transforms()
   }
   else {
     hfi_dir = thetaPark_obs;
+    hfi_contout = thetaPark_obs;
     hfi_dir_int = 0;
     hfi_half_int_prev = 0;
     hfi_firstcycle = true;
@@ -805,6 +834,7 @@ void Transforms()
     hfi_Iq_meas_high = 0;
     hfi_V_act = 0;
   }
+  hfi_prev = hfi_V;
 
 
   if (useIlowpass == 2)
@@ -844,8 +874,6 @@ void Transforms()
     //Additional Vd
     Vd += dist * Vd_distgain;
     Vd += hfi_V_act;
-
-    we = vel * N_pp;  //Electrical speed [rad/s], based on setpoint
 
     // PMSM decoupling control and BEMF FF
     VqFF = we * ( Ld * Id_meas + Lambda_m);
