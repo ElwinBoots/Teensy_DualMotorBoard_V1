@@ -41,12 +41,12 @@ from PyQt5.QtWidgets import (
 f_pwm = 30e3
 Ts = 1/(2*f_pwm)
 
-# n_trace = 14; #Was 10. USB packets are up to 2048 kB. 4 B per value -> 512 values. 16 (14 + 2 overhead)values fit exactly 32 times in this 512 values. 
-n_trace = 30; 
+n_trace = 14; #Was 10. USB packets are up to 2048 kB. 4 B per value -> 512 values. 16 (14 + 2 overhead)values fit exactly 32 times in this 512 values. 
+# n_trace = 30; 
 # n_trace = 62;  #Too high, current plant prbs measurement shows it is not always in time
 
 # com = 'COM10' 1
-com = 'COM5'
+com = 'COM3'
 
 motor = 'motor1'
 
@@ -180,7 +180,6 @@ def readData(N , ser=ser):
         buffer = ser.read(N*4*Nsig)
     else:
         buffer = ser.readall()
-
     n = np.zeros( int(N) , dtype=np.uint32 )
     t = np.zeros( int(N) ) 
     s = np.zeros( ( int(N) , Nsig-2 ))
@@ -382,7 +381,7 @@ def getsignalnames( ser ):
 
 #CLose the loop
 def CL( f_bw = 1e3 , ser=ser):
-    ser = start( ser )
+    # ser = start( ser )
     # if (getsig( 'IndexFound1' , ser )+ getsig( 'IndexFound2' ,ser) ) < 2:
     #     setpar('ridethewave' , 1 , ser)
     #     time.sleep( 1 )
@@ -391,8 +390,10 @@ def CL( f_bw = 1e3 , ser=ser):
     # else:  
   
     # Ld = 190e-6  
-    # Lq = 235e-6
-    # R = 0.33
+    # Lq = 245e-6
+    # R = 0.399
+    # setpar('Lambda_m' , 0.01213)
+    # setpar('N_pp' ,  4)
 
     # Ld = 5.1e-6 
     # Lq = 5.3e-6 
@@ -420,9 +421,12 @@ def CL( f_bw = 1e3 , ser=ser):
     # setpar('N_pp' ,  12) $Not checked!
 
     #Trampa 160KV
-    Ld = 33e-6 
-    Lq = 53e-6     
-    R = 0.0735     
+    # Ld = 33e-6 
+    # Lq = 53e-6  
+    # R = 0.0735    
+    Ld = 19e-6 #New board 
+    Lq = 34e-6  
+    R = 0.035
     setpar('Lambda_m' , 0.005405 )
     setpar('N_pp' ,  7)
 
@@ -434,7 +438,7 @@ def CL( f_bw = 1e3 , ser=ser):
     Jload = 6.77e-5 #kgm²
     vFF = 7e-5  #Nm/(rad/s)
     setpar( 'Jload' ,  Jload  , ser)
-    setpar( 'velFF' ,  vFF  , ser)
+    # setpar( 'velFF' ,  vFF  , ser)
     setpar( 'rmechoffset' , 0 , ser)
     setpar( 'rmechoffset' , -getsig( 'emech1'  , ser) , ser)
     getsig('emech1'  , ser)
@@ -486,8 +490,6 @@ def res():
 ser = start( ser )
 
 
-setTrace( ser.signames[0:30] )
-
 #%% Find commutation offset M1
 ser = start( ser )
 
@@ -506,7 +508,7 @@ Ibeta1 = getsig('Ibeta')
 Ia1 = getsig('ia')
 bus1 = getsig('sensBus')
 
-setpar('Valpha_offset' , 0.4) 
+setpar('Valpha_offset' , 0.7) 
 
 time.sleep( 0.5 )
 Valpha2 = getsig('Valpha_offset')
@@ -590,19 +592,18 @@ for i in range(len(data[1][0,:])):
 a = plt.figure()
 #%%
 
-setpar('I_max' , 10)
+setpar('I_max' , 20)
 setpar('maxDutyCycle' , 0.99)
 
-setpar('anglechoice' ,1 )
-setpar('advancefactor' , 0)
+# setpar('anglechoice' ,1 )
+# setpar('advancefactor' , 0)
 
-# setpar('anglechoice' ,0 )
-# setpar('advancefactor' , 1)
+setpar('anglechoice' ,0 )
+setpar('advancefactor' , 1)
 
 # signals = [ 'Q' , 'Id_meas' , 'Iq_meas' , 'Va' , 'Vb', 'Vc' , 'Iq_SP'   , 'thetaPark', 'thetaPark_enc' , 'thetaPark_obs'   ,'BEMFa' , 'BEMFb']
-signals = [ 'Iq_offset_SP'  , 'Iq_meas' , 'Id_meas'  , 'Vq' , 'Vd' , 'Va' , 'Vb', 'Vc' , 'sensBus', 'thetaPark',  'thetaPark_obs', 'thetaPark_vesc' , 'erpm']
+signals = [ 'Iq_offset_SP'  , 'Iq_meas' , 'Id_meas'  , 'Vq' , 'Vd' , 'Va' , 'Vb', 'Vc' , 'sensBus', 'thetaPark',  'thetaPark_obs' , 'thetaPark_enc']
 # signals = [ 'maxVolt'  , 'Vtot', 'Iq_meas' , 'Id_meas'  , 'Vq' , 'Vd' , 'Va' , 'Vb', 'Vc' , 'sensBus', 'thetaPark',  'thetaPark_obs' , 'erpm']
-
 
 setTrace( signals )
 
@@ -616,13 +617,13 @@ df2 = trace( 1 )
 
 # df.plot()
 
-# df.filter(regex='thetaPark').plot()
+df.filter(regex='thetaPark').plot()
 
-df.filter(regex='^I').plot( )
-df.filter(regex='^V[dq]').plot( )
+# df.filter(regex='^I').plot( )
+# df.filter(regex='^V[dq]').plot( )
 
 # ax = plt.figure()
-df.filter(regex='^erpm').plot( )
+# df.filter(regex='^erpm').plot( )
 
 
 # df.filter(regex='thetaPark_obs').plot()
@@ -927,7 +928,7 @@ setpar( 'Iq_offset_SP' , 5)
 setpar('anglechoice' ,1)
 
 #%% Current plant FRF measurement PRBS
-ser = start( ser )
+# ser = start( ser )
 
 # Lq = 2.6e-4 
 # Ld = 2.2e-4
@@ -947,7 +948,7 @@ signals = [ 'D', 'Q' , 'Id_meas' , 'Iq_meas', 'Id_meas2' , 'Iq_meas2' , 'dist' ,
 setTrace( signals )
 
 
-gain = 2
+gain = 0.5
 setpar('Vq_distgain' , 1)
 setpar('Vd_distgain' , 1)
 setpar('Iq_distgain' , 0)
@@ -1167,7 +1168,7 @@ setpar('hfi_on' , 1)
 #%%
 setpar('hfi_on' , 0)
 #%%
-setpar( 'Iq_offset_SP' , 12)
+setpar( 'Iq_offset_SP' , 2)
 #%%
 setpar( 'Iq_offset_SP' , 0)
 #%%
@@ -1199,20 +1200,30 @@ ser.write( b'C' + struct.pack('I',  0) ) # Set controllers
 
 #%% Trampa 160kv
 ser = start( ser )
-CL(200)
+CL(300)
+
+setpar('Id_offset_SP', 5)
+time.sleep(0.5)
+setpar('Id_offset_SP', 0)
+
 
 setpar('hfi_use_lowpass' , 1)
-setpar('anglechoice' ,3)
 
-Ki =400*2*pi
+setpar('hfi_method', 3)
+
+Ki = 1000*2*pi
 hfi_v = 2
 
+setpar('hfi_maxvel', 1e6)
 setpar('hfi_gain' , Ki )
 setpar('hfi_gain_int2' , 5*2*pi)
 setpar('hfi_V' , hfi_v)
 setpar('hfi_on' , 1)
+setpar('anglechoice' ,3)
 
 setpar( 'hfi_useforfeedback' , 1)
+
+setpar('I_max' , 20)
 
 #%%  
 setpar( 'Kp' , 0)
@@ -1220,12 +1231,31 @@ setpar( 'rmechoffset' , 0 , ser)
 setpar( 'rmechoffset' , -getsig( 'emech1'  , ser) , ser)
 getsig('emech1'  , ser)
 
-Kp =4.8
-fBW = 20
+# Kp =4.8
+# fBW = 20
+# alpha1 = 3
+# alpha2 = 3
+# fInt = fBW / 8
+# fLP = fBW * 7
+# Kp =6.2
+# fBW = 25
+# alpha1 = 3
+# alpha2 = 3
+# fInt = fBW / 8
+# fLP = fBW * 7
+
+Kp =10
+fBW = 30
 alpha1 = 3
 alpha2 = 3
-fInt = fBW / 8
+fInt = fBW / 6
 fLP = fBW * 7
+# Kp =30
+# fBW = 40
+# alpha1 = 3
+# alpha2 = 3
+# fInt = fBW / 8
+# fLP = fBW * 7
 
 setpar( 'fBW' , fBW)
 setpar( 'alpha1' , alpha1)
@@ -1245,7 +1275,6 @@ setpar('anglechoice' ,3)
 Ki =500*2*pi
 hfi_v = 1
 
-setpar('hfi_usesimple' , 1)
 setpar('hfi_gain' , Ki )
 setpar('hfi_gain_int2' , 5*2*pi)
 setpar('hfi_V' , hfi_v)
@@ -1275,10 +1304,140 @@ setpar( 'Kp' , Kp)
 
 ser.write( b'C' + struct.pack('I',  0) ) # Set controllers
 
-#%%  
-tracesignal(['thetaPark',  'thetaPark_obs'] , 2)
+#%% Wittenstein 1
+ser = start( ser )
 
-tracesignal(['emech1',  'mechcontout'] , 2)
+setpar('ridethewave' , 1 )
+time.sleep( 1 )
+
+setpar( 'commutationoffset',0) 
+setpar('Valpha_offset' , 2) 
+time.sleep(1)
+offset = getsig('thetaPark_enc')
+setpar('Valpha_offset' , 0)
+setpar( 'commutationoffset', -offset) 
+
+CL(300)
+
+setpar('hfi_use_lowpass' , 1)
+
+setpar('hfi_method', 3)
+
+Ki = 1000*2*pi
+hfi_v = 14
+
+setpar('hfi_gain' , Ki )
+setpar('hfi_gain_int2' , 5*2*pi)
+setpar('hfi_V' , hfi_v)
+setpar('hfi_on' , 1)
+setpar('anglechoice' ,3)
+
+setpar( 'hfi_useforfeedback' , 1)
+
+#%%  
+setpar( 'Kp' , 0)
+setpar( 'rmechoffset' , 0 , ser)
+setpar( 'rmechoffset' , -getsig( 'emech1'  , ser) , ser)
+getsig('emech1'  , ser)
+
+
+Kp = 0.45
+fBW = 15
+alpha1 = 3
+alpha2 = 3
+fInt = fBW / 8
+fLP = fBW * 7
+# Kp =1.16195
+# fBW = 25
+# alpha1 = 3
+# alpha2 = 3
+# fInt = fBW / 8
+# fLP = fBW * 7
+
+#Ecoder
+# Kp = 45
+# fBW = 100
+# alpha1 = 3
+# alpha2 = 3
+# fInt = fBW / 8
+# fLP = fBW * 7
+# Kp = 144
+# fBW = 200
+# alpha1 = 3
+# alpha2 = 3
+# fInt = fBW / 8
+# fLP = fBW * 7
+
+setpar( 'fBW' , fBW)
+setpar( 'alpha1' , alpha1)
+setpar( 'alpha2' , alpha2)
+setpar( 'fInt' , fInt)
+setpar( 'fLP' ,  fLP)
+setpar( 'Kp' , Kp)
+
+ser.write( b'C' + struct.pack('I',  0) ) # Set controllers
+
+
+
+
+#%%  
+
+signals = ['Id_meas',  'Iq_meas','Vd' , 'Vq' , 'hfi_dir'];
+setTrace( signals )
+
+time.sleep(0.1)
+
+N = 50
+Nsig = 2+n_trace
+setpar('Nsend' , N , ser)
+setpar('hfi_V' , 12)
+
+if N < 100:
+    buffer = ser.read(N*4*Nsig)
+else:
+    buffer = ser.readall()
+
+n = np.zeros( int(N) , dtype=np.uint32 )
+t = np.zeros( int(N) ) 
+s = np.zeros( ( int(N) , Nsig-2 ))
+
+sigtypes = ['I' , 'I' ] + ser.tracesigtypes
+for sigtype in set(sigtypes):
+    indices = [i for i in range(len(sigtypes)) if sigtypes[i] == sigtype]
+    indices = np.array(indices)
+    if sigtype == 'b':
+        tmp = np.ndarray( ( int(N) , Nsig ) , 'bool', buffer[0::4] )
+    else:
+        tmp = np.ndarray( ( int(N) , Nsig ) , sigtype, buffer )
+    if sigtype == 'I':
+        n = tmp[:,indices[0]]
+        t = tmp[:,indices[1]] / 1e6
+        s[:,indices[2:]-2] = tmp[:,indices[2:]]
+    else:
+        s[:,indices-2] = tmp[:,indices]
+
+
+setpar('hfi_V' , 2)
+
+plt.figure()
+plt.plot( s[:,0])
+
+if( abs(np.min( s[0:30,0])) > np.max( s[0:30,0]) ):
+    print('Wrong')
+    setpar('hfi_dir' , np.mod(getsig('hfi_dir') + np.pi , 2*pi ))
+else:
+    print('Right')
+print(np.mean( s[:,0:26] ))
+
+setpar( 'Iq_offset_SP' , 5)
+time.sleep(1)
+setpar( 'Iq_offset_SP' , 0)
+
+
+
+#%% 
+setpar( 'Iq_offset_SP' , 10)
+setpar( 'Iq_offset_SP' , 0)
 
 #%%     
 setpar( 'offsetVel' , 3*np.pi)
@@ -1323,8 +1482,8 @@ bode( Pmech2 , f , 'Plant')
 # fInt = fBW / 8;
 # fLP = fBW * 8
 
-Kp =4.8
-fBW = 20
+Kp = 144
+fBW = 200
 alpha1 = 3
 alpha2 = 3
 fInt = fBW / 8
@@ -1371,16 +1530,19 @@ ser.write( b'o' + struct.pack('f',  0) ) # Restart controller
 makebodesOL( Ndownsample , 1)
 
 #%% Overall FRF measurement PRBS
+
+
 NdownsamplePRBS = 10
 N = 10*NdownsamplePRBS*2047 + 1/Ts
 
-vel = 20*np.pi
-for i in np.arange( 0 , 1 , 0.01):
-    setpar( 'offsetVel' ,  vel*i )
-    time.sleep( 0.01)
+vel = 0*np.pi
+if vel > 0:
+    for i in np.arange( 0 , 1 , 0.01):
+        setpar( 'offsetVel' ,  vel*i )
+        time.sleep( 0.01)
 
 setpar( 'NdownsamplePRBS' , NdownsamplePRBS)
-setpar( 'distval' , 0.2) #disturbance amplitude
+setpar( 'distval' , 0.3) #disturbance amplitude
 setpar('Vq_distgain' , 0)
 setpar('Vd_distgain' , 0)
 setpar('Iq_distgain' , 0)
@@ -1390,9 +1552,10 @@ setpar('mechdistgain' , 1)
 signals = [ 'mechcontout' , 'D', 'Q' , 'Id_meas' , 'Iq_meas' , 'dist' , 'emech1' , 'emech2' , 'Vq' ,'ymech1' , 'mechcontout2' , 'hfi_abs_pos']
 setTrace( signals )
 t,s = readData( int(N) )
-for i in np.arange( 1 , 0 , -0.01):
-    setpar( 'offsetVel' ,  vel*i )
-    time.sleep( 0.05)
+if vel > 0:
+    for i in np.arange( 1 , 0 , -0.01):
+        setpar( 'offsetVel' ,  vel*i )
+        time.sleep( 0.05)
 setpar( 'distval' , 0) #disturbance amplitude
 setpar( 'NdownsamplePRBS' , 1) #Downsampling
 
@@ -1410,8 +1573,10 @@ Pmech2 = -E2/TORQUE2
 N_pp = getsig('N_pp')
 Pmech3 = hfi_pos/TORQUE /N_pp 
 
-
 plt.figure(1)
+bode( Pmech , f)
+
+plt.figure(2)
 bode( DIST/TORQUE - 1 , f)
 # bode( DIST/TORQUE2 - 1 , f)
 
@@ -1419,16 +1584,11 @@ bode( DIST/TORQUE - 1 , f)
 # bode( Pmech , f)
 # bode( Pmech3, f)
 
-plt.figure(3)
-bode( Pmech , f)
 
 plt.figure(3)
 bode( Pmech * (f*2*pi)**2, f)
 # bode( Pmech3 , f)
 
-
-plt.figure(4)
-nyquist( DIST/TORQUE - 1 , f)
 
 #%%
 plt.figure(3)
@@ -1511,13 +1671,16 @@ plt.figure(3)
 bode( 1/S-1 , freqs , 'OL')
 
 #%% Single sine
-ser = start( ser ) 
-ss_fstart = 100;
-ss_fstep = 5;
-ss_fend = 110;
-ss_n_aver = 100;
-ss_distgain = 2;
+setpar('hfi_method', 2)
+
+ss_fstart = 10;
+ss_fstep = 50;
+ss_fend = 1000;
+ss_n_aver = 10;
+ss_distgain = 0.3;
 ss_distoffset = 0;
+
+offsetvel = 0 * pi
 
 #ss_fstart = 1;
 #ss_fstep = 1;
@@ -1531,73 +1694,98 @@ setpar('Vq_distgain' , 0)
 setpar('Vd_distgain' , 0)
 setpar('Iq_distgain' , 0)
 setpar('Id_distgain' , 0)
-setpar('mechdistgain' , 0.1)
+setpar('mechdistgain' , 0)
+setpar('hfi_distgain' , 1)
 
 N = int( t_tot / Ts)
-setpar( 'offsetVel' , 2*np.pi)
+setpar( 'offsetVel' , offsetvel )
 setpar( 'ss_fstart' , ss_fstart )   
 setpar( 'ss_fend' , ss_fend)
 setpar( 'ss_fstep' , ss_fstep)
 setpar( 'ss_n_aver' , ss_n_aver)
 setpar( 'distoff' , ss_distoffset)
 time.sleep(0.5)
+
+signals = [ 'ss_f' , 'dist' , 'mechcontout' ,'emech1' ,'emech2' , 'hfi_dir' , 'hfi_error']
+setTrace( signals )
 ser.write( b's' + struct.pack('f', ss_distgain ) )
 
-signals = [ 'ss_f' , 'dist' , 'mechcontout' ,'emech' , 'emech2' ]
-setTrace( signals )
 t,s = readData( int(N) )
 
 ser.write( b's' + struct.pack('f',  0) )
 setpar( 'offsetVel' , 0.0*np.pi)
 #ser.write( b'o' + struct.pack('f',  0) ) # Restart controller
 ss_f = s[:, signals.index('ss_f')]
-freqs = np.unique( ss_f[ss_f>0]  )
-S = np.zeros( len(freqs) ,dtype=np.complex_)
-PS = np.zeros( len(freqs) ,dtype=np.complex_)
-PS2 = np.zeros( len(freqs) ,dtype=np.complex_)
-#Pelec = np.zeros( len(freqs) ,dtype=np.complex_)
-for freq in freqs:
+f = np.unique( ss_f[ss_f>0]  )
+S = np.zeros( len(f) ,dtype=np.complex_)
+PS = np.zeros( len(f) ,dtype=np.complex_)
+PS2 = np.zeros( len(f) ,dtype=np.complex_)
+HFI_transfer = np.zeros( len(f) ,dtype=np.complex_)
+HFI_Plant = np.zeros( len(f) ,dtype=np.complex_)
+#Pelec = np.zeros( len(f) ,dtype=np.complex_)
+for freq in f:
     I = ss_f == freq
-    DIST , f = getFFT_SS( s[I, signals.index('dist')] )
-    mechcontout , f = getFFT_SS( s[I, signals.index('mechcontout')] )
-    EMECH , f = getFFT_SS( s[I, signals.index('emech')] )
-    EMECH2 , f = getFFT_SS( s[I, signals.index('emech2')] )
+    DIST , f2 = getFFT_SS( s[I, signals.index('dist')] )
+    mechcontout , f2 = getFFT_SS( s[I, signals.index('mechcontout')] )
+    EMECH , f2 = getFFT_SS( s[I, signals.index('emech1')] )
+    EMECH2 , f2 = getFFT_SS( s[I, signals.index('emech2')] )
+    HFI_DIR , f2 = getFFT_SS( s[I, signals.index('hfi_dir')] )
+    HFI_ERROR , f2 = getFFT_SS( s[I, signals.index('hfi_error')] )
 
-    index = np.argmin( abs(freq-f ))  
+    index = np.argmin( abs(freq-f2 ))  
 
 #    SENS , f = getFFT_SS( sens[I] )
 #    VOUT , f = getFFT_SS( Vout[I] )
 
-#    Pelec[freq==freqs] = SENS[index] / VOUT[index]  
-    S[freq==freqs] = mechcontout[index] / DIST[index]
-    PS[freq==freqs] = -EMECH[index] / DIST[index]  
-    PS2[freq==freqs] = -EMECH2[index] / DIST[index]     
+#    Pelec[freq==f] = SENS[index] / VOUT[index]  
+    S[freq==f] = mechcontout[index] / DIST[index]
+    PS[freq==f] = -EMECH[index] / DIST[index]  
+    PS2[freq==f] = -EMECH2[index] / DIST[index]     
+    HFI_transfer[freq==f] = HFI_DIR[index] / DIST[index]   
+    HFI_Plant[freq==f] = -HFI_ERROR[index] / HFI_DIR[index]   
+    
 
 
-#freqs, results = goertzel(some_samples, 44100, (400, 500), (1000, 1100))
+#f, results = goertzel(some_samples, 44100, (400, 500), (1000, 1100))
+# Pmech = PS/S
+# plt.figure(1)
+# bode( Pmech  , f , 'P')
+# bode( PS2/S , f , 'P2')
+
+# plt.figure(2)
+# bode( 1/S-1 , f , 'OL')
+# plt.figure(3)
+# nyquist( 1/S-1 , f , 'OL')
+
+# def normalize(v): 
+#     norm = max(abs(v))
+#     if norm == 0: 
+#        return v
+#     return v / norm
+
+# freq = ss_f[ np.argmin( abs(1000-ss_f ) ) ]
+# plt.figure();
+# plt.plot( normalize( s[ ss_f == freq , signals.index('dist')] ))
+# plt.plot( normalize( s[ ss_f == freq , signals.index('mechcontout')] ))
+# plt.plot(normalize( s[ ss_f == freq , signals.index('emech1')] ))
+# plt.show();
+
+# plt.figure()
+# bode( HFI_transfer , freqs )
+
+# plt.figure();
+# plt.plot(t , s[:,[2, 5]])
+# plt.show();
+
+# print( np.angle(HFI_transfer[0]) )
+
+
 
 plt.figure(1)
-bode( PS/S , freqs , 'P')
-# bode( PS2/S , freqs , 'P2')
+bode( HFI_Plant  , f , 'HFI_Plant')
 
 plt.figure(2)
-bode( 1/S-1 , freqs , 'OL')
-plt.figure(3)
-nyquist( 1/S-1 , freqs , 'OL')
-
-def normalize(v):
-    norm = max(abs(v))
-    if norm == 0: 
-       return v
-    return v / norm
-
-freq = ss_f[ np.argmin( abs(1000-ss_f ) ) ]
-plt.figure();
-plt.plot( normalize( s[ ss_f == freq , signals.index('dist')] ))
-plt.plot( normalize( s[ ss_f == freq , signals.index('mechcontout')] ))
-plt.plot(normalize( s[ ss_f == freq , signals.index('emech')] ))
-plt.show();
-
+bode( 1/HFI_transfer -1  , f , 'HFI_OL')
 #%%
 signals = [ 'rmech', 'ymech' , 'emech' , 'Iq_SP' , 'Iq_meas', 'Id_meas' , 'acc' , 'Vq' , 'firsterror']
 setTrace( signals )
@@ -1704,8 +1892,22 @@ ser = start( ser )
 #%%
 plt.close('all')
 #%% Setpoint
-Jload = 0.0003162277 #kgm²
+setpar('hfi_method' , 3)
+
+# setpar('hfi_gain' , 1000*2*pi )
+# setpar('hfi_gain_int2' , 20*2*pi)
+# setpar('hfi_use_lowpass' , 1 )
+setpar('hfi_maxvel', 1e6)
+
+Jload = 0.0003162277 #kgm² #160kv
 setpar( 'Jload' ,  Jload )
+
+#Wittenstein (with broken blue thing)
+# Jload = 7e-05 #kgm²
+# vFF = 0  #Nm/(rad/s)
+# setpar( 'Jload' ,  Jload  )
+# setpar( 'velFF' ,  vFF  )
+
 
 setpar('I_max' , 20)
 
@@ -1715,21 +1917,35 @@ setpar('I_max' , 20)
 #getsig( 'Jload' )
 #getsig( 'velFF' )
 
-p = 2*np.pi
-v = 50*np.pi
-a = 1000*np.pi
-j = 80000*np.pi
-Nsp = 3
+# p = 2*np.pi
+# v = 300
+# a = 700*np.pi
+# j = 100000*np.pi
+# Nsp = 1
+
+p = 20*np.pi
+v = 100
+a = 100*np.pi
+j = 100000*np.pi
+Nsp = 1
+
+
+# p = 2*np.pi/360*0.1
+# v = 0.3
+# a = 3
+# j = 200
+# Nsp = 1
 
 [t1, t2, t3, jd] = prepSP(  p , v , a , j )
 
 
 # signals = [ 'rmech', 'ymech1' , 'emech1' , 'vel' , 'Iq_meas', 'Id_meas' , 'acc' , 'Va', 'Vb', 'Vc' , 'mechcontout', 'sensBus']
-signals = [ 'rmech', 'ymech1' , 'emech1' , 'vel' , 'Iq_meas', 'Id_meas' , 'acc' , 'Va2', 'Vb2', 'Vc2' , 'mechcontout', 'sensBus','sensBus_lp']
+signals = [ 'rmech', 'ymech1' , 'emech1' , 'vel' , 'Iq_meas', 'Id_meas' , 'acc'  , 'mechcontout', 'sensBus','sensBus_lp' , 'encoderPos1' , 'P_tot' , 'I_bus']
 setTrace( signals )
 
-# delay = 0.2
-# for p in np.linspace( 0.1 , 2*pi , 5):
+
+# delay = 0.3
+# for p in np.linspace( 2*np.pi/360*1 , 2*np.pi/360*10 , 10):
 #     [t1, t2, t3, jd] = prepSP(  p , v , a , j )
 #     setpar('SPdir' , 1)
 #     setpar('spNgo',Nsp)
@@ -1742,14 +1958,69 @@ setTrace( signals )
 #         bla = 1;
 #     time.sleep(delay)
 
+# delay = 0.1
+# for p in np.linspace( 0.1 , 2*pi , 11):
+#     [t1, t2, t3, jd] = prepSP(  p , v , a , j )
+#     setpar('SPdir' , 1)
+#     setpar('spNgo',Nsp)
+#     while (getsig('REFstatus') > 0):
+#         bla = 1;
+#     time.sleep(delay)
+#     setpar('SPdir' , 0)
+#     setpar('spNgo',Nsp)
+#     while (getsig('REFstatus') > 0):
+#         bla = 1;
+#     time.sleep(delay)
+
+# time.sleep(1)
+# delay = 0.00
+# for p in np.linspace( 0.1 , 2*pi , 11):
+#     [t1, t2, t3, jd] = prepSP(  p , v , a , j )
+#     setpar('SPdir' , 1)
+#     setpar('spNgo',Nsp)
+#     while (getsig('REFstatus') > 0):
+#         bla = 1;
+#     time.sleep(delay)
+#     setpar('SPdir' , 0)
+#     setpar('spNgo',Nsp)
+#     while (getsig('REFstatus') > 0):
+#         bla = 1;
+#     time.sleep(delay)
+
+
+# setpar('SPdir' , 1)
+# setpar('spNgo',Nsp)
+# while (getsig('spNgo') > 0 or getsig('REFstatus') > 0):
+#     a=1;
+# setpar('SPdir' , 0)
+# setpar('spNgo',Nsp)
+
 setpar('SPdir' , 1)
 setpar('spNgo',Nsp)
+
 df = trace(Nsp*(0.01+4*t1+2*t2+t3)+0.1)  
 
-# df.filter(regex='sensBus').plot()
-df.filter(regex='[ry]mech').plot()
-# df.filter(regex='Iq').plot()
-# df.filter(regex='vel').plot()
+df.filter(regex='sensBus').plot()
+df.filter(regex='P_tot').plot()
+df.filter(regex='I_bus').plot()
+
+# enc = (df['encoderPos1']*2*pi/20e3)
+# enc = enc - enc[0] + np.mean(df['rmech'][0])
+
+# plt.figure()
+# df['rmech'].plot()
+# df['ymech1'].plot()
+# enc.plot()
+# plt.legend()
+# plt.grid()
+
+# df.filter(regex='I').plot()
+# df.filter(regex='acc').plot()
+
+
+# df.filter(regex='hfi_error').plot()
+# df.filter(regex='hfi_ffw').plot()
+# df.filter(regex='hfi_dir').plot()
 
 
 #%%
@@ -2196,3 +2467,73 @@ setpar('Ndownsample' , int( 1 ))
 
 
 
+#%%
+ser = start( ser )
+CL(300)
+
+#%%
+setpar('anglechoice' ,3)
+setpar('hfi_method', 2)
+
+Ki = 500*2*pi
+hfi_v = 3
+
+setpar('hfi_gain' , Ki )
+setpar('hfi_gain_int2' , 5*2*pi)
+setpar('hfi_V' , hfi_v)
+setpar('hfi_on' , 1)
+setpar('hfi_use_lowpass' , 0)
+
+setpar( 'hfi_useforfeedback' , 1)
+
+NdownsamplePRBS = 1
+N = 10*NdownsamplePRBS*2047 + 1/Ts
+
+setpar( 'NdownsamplePRBS' , NdownsamplePRBS)
+setpar( 'distval' , 0.2) #disturbance amplitude
+setpar('Vq_distgain' , 0)
+setpar('Vd_distgain' , 0)
+setpar('Iq_distgain' , 0)
+setpar('Id_distgain' , 0)
+setpar('mechdistgain' , 0)
+setpar('hfi_distgain' , 1)
+
+signals = [ 'mechcontout' , 'D', 'Q' , 'Id_meas' , 'Iq_meas' , 'dist' , 'emech1' , 'emech2' , 'Vq' ,'ymech1' , 'mechcontout2' , 'hfi_dir' , 'hfi_error']
+setTrace( signals )
+t,s = readData( int(N) )
+setpar( 'distval' , 0) #disturbance amplitude
+setpar( 'NdownsamplePRBS' , 1) #Downsampling
+
+hfi_pos,f = getFFT( s[:,signals.index('hfi_dir')] , NdownsamplePRBS )
+hfi_error,f = getFFT( s[:,signals.index('hfi_error')] , NdownsamplePRBS )
+
+DIST,f = getFFT( s[:,5] , NdownsamplePRBS )
+
+
+S = hfi_pos / DIST
+PS = -hfi_error / DIST
+P = PS / S
+OL = 1/S-1
+
+
+plt.figure(1)
+bode( P , f)
+
+
+plt.figure(2)
+bode( OL , f)
+
+plt.figure(3)
+nyquist( OL , f)
+
+#%%
+setpar( 'Iq_offset_SP' , 0)
+
+
+#%%
+CL(50)
+setpar('hfi_V' , 14)
+signals = [ 'Iq_offset_SP'  , 'Iq_meas' , 'Id_meas'  , 'Vq' , 'Vd' , 'Va' , 'Vb', 'Vc' , 'sensBus', 'thetaPark',  'thetaPark_obs' , 'thetaPark_enc']
+setTrace( signals )
+df = trace( 2 ) 
+df.filter(regex='thetaPark').plot()

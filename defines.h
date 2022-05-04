@@ -1,5 +1,5 @@
 #define f_pwm 30e3
-#define n_trace 30
+#define n_trace 14
 const float Ts = 1e6/(2*f_pwm); //Ts in microseconds
 
 #define NORM2_f(x,y)    (sqrtf(sq(x) + sq(y)))
@@ -50,6 +50,8 @@ float Vbeta = 0;
 float thetawave = 0 ;
 float Id_meas;
 float Iq_meas;
+float Id_meas_lp;
+float Iq_meas_lp;
 float VSP = 0;
 
 float commutationoffset2 = 0;
@@ -61,6 +63,8 @@ float Vbeta2 = 0;
 float thetawave2 = 0 ;
 float Id_meas2;
 float Iq_meas2;
+float Id_meas2_lp;
+float Iq_meas2_lp;
 
 float Va = 0;
 float Vb = 0;
@@ -108,7 +112,6 @@ unsigned int NdownsamplePRBS = 1;
 unsigned int downsamplePRBS  = 1;
 uint16_t lfsr = 0xACE1u; /* Any nonzero start state will work. */
 uint16_t noisebit;       /* Must be 16bit to allow bit<<15 later in the code */
-unsigned period = 0;
 //
 
 // SS
@@ -199,10 +202,11 @@ Biquad *lowpassIsens2  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 1 / T);
 Biquad *lowpassIsens3  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 1 / T);
 Biquad *lowpassIsens4  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 1 / T);
 
-Biquad *lowpassId1  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 1 / T);
-Biquad *lowpassId2  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 1 / T);
-Biquad *lowpassIq1  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 1 / T);
-Biquad *lowpassIq2  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 1 / T);
+//These are now used for power and bus current estimates
+Biquad *lowpassId1  = new Biquad( bq_type_lowpass , 50 , 0.7, 1 / T);
+Biquad *lowpassId2  = new Biquad( bq_type_lowpass , 50 , 0.7, 1 / T);
+Biquad *lowpassIq1  = new Biquad( bq_type_lowpass , 50 , 0.7, 1 / T);
+Biquad *lowpassIq2  = new Biquad( bq_type_lowpass , 50 , 0.7, 1 / T);
 
 unsigned int useIlowpass = 0;
 
@@ -246,6 +250,8 @@ float sens3_calib;
 float sens4_calib;
 
 float sensBus;
+float I_bus; 
+float P_tot;
 
 float Busadc2Vbus = 1 / 4095.0 * 3.3 * ((68.3 + 5.05) / 5.05); //5.1 changed to 5.05 to improve accuracy. May differ board to board.
 int n_senscalib;
@@ -383,6 +389,13 @@ bool hfi_useforfeedback = false;
 float hfi_half_int_prev;
 bool hfi_use_lowpass;
 Biquad *hfi_lowpass = new Biquad( bq_type_lowpass , 2000 , 0.707, 1 / T);
+float hfi_prev;
+float hfi_distgain;
+float hfi_contout;
+float hfi_error;
+unsigned int hfi_method = 1;
+float hfi_ffw;
+float hfi_maxvel = 10;
 
 float VqFF;
 float VdFF;
