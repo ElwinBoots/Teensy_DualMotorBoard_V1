@@ -1,0 +1,1416 @@
+#include <Math.h>
+#include <arm_math.h>
+#include <SPI.h>
+
+#include "Biquad.h"
+#include "ControlTools.h"
+#include "muziek.c"
+#include "QuadEncoder.h"
+#include "MotionProfile.h"
+#include "defines.h"
+#include "trace.h"
+
+Biquad *lowpass_sensbus   = new Biquad( bq_type_lowpass , 500 , 0.7, 2 * f_pwm);
+Integrator *integrator = new Integrator( fInt , 2 * f_pwm);
+LeadLag *leadlag       = new LeadLag( fBW , alpha1 , alpha2 , 2 * f_pwm);
+Biquad *lowpass        = new Biquad( bq_type_lowpass , fLP , 0.7, 2 * f_pwm);
+Biquad *lowpass_eradpers   = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * f_pwm);
+//Biquad *notch          = new Biquad( bq_type_notch , 2315.0, -20.0, 0.1 , 2 * f_pwm );
+
+//Current lowpass (now used at sensor level, maybe better at id,iq level?). Doesn't seem to matter much.
+Biquad *lowpassIsens1  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * f_pwm);
+Biquad *lowpassIsens2  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * f_pwm);
+Biquad *lowpassIsens3  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * f_pwm);
+Biquad *lowpassIsens4  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * f_pwm);
+
+//These are now used for power and bus current estimates
+Biquad *lowpassId1  = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * f_pwm);
+Biquad *lowpassIq1  = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * f_pwm);
+
+Biquad *hfi_lowpass = new Biquad( bq_type_lowpass , 2000 , 0.707, 2 * f_pwm);
+
+// For setpoint
+Biquad *lowpassSP = new Biquad( bq_type_lowpass , 10 , 0.707, 2 * f_pwm);
+
+//fast 180 deg:
+MotionProfile *SPprofile = new MotionProfile( 0 , 0.000500000000000000 , 0.0193000000000000 , 0 , 3.14159265358979 , 157.079632679490 , 7853.98163397448 , 15632147.3532855 , T );
+
+Biquad *lowpass_ss_offset = new Biquad( bq_type_lowpass , 10 , 0.707, 2 * f_pwm);
+
+//There are 4 hardware quadrature encoder channels available the Teensy 4.x.
+//The Teensy 4.1 Encoders are supported on pins: 0, 1, 2, 3, 4, 5, 7, 30, 31, 33, 36 and 37.
+//WARNING! Pins 0, 5 and 37 share the same internal crossbar connections and are as such exclusive...pick one or the other.
+QuadEncoder Encoder1(1, 0, 1 , 0 , 3);   //Encoder 1 on pins 0 and 1, index on pin 3
+QuadEncoder Encoder2(2, 30, 31 , 0 , 33);//Encoder 2 on pins 30 and 31, index on pin 33
+
+
+void initparams( motor_total_t* m ) {
+  m->conf.Ts = 1e6 / (2 * f_pwm)
+  m->conf.T = m->conf.Ts / 1e6;
+  m->conf.Busadc2Vbus = 1 / 4095.0 * 3.3 * ((68.3 + 5.05) / 5.05); //5.1 changed to 5.05 to improve accuracy. May differ board to board.
+  initmotor( mot_conf_t* &m->conf1 , mot_state_t* &m->state1);
+  initmotor( mot_conf_t* &m->conf2 , mot_state_t* &m->state2); 
+}
+
+void initmotor( mot_conf_t* m , mot_state_t* state) ) {
+  m->maxDutyCycle = 0.99;
+  m->adc2A = 1 / 0.09; //With linear hal current sensors ACS711 (31A or 15.5A): These allow for 2 measurements per PWM cycle
+
+  m->enccountperrev = 20000;
+  m->enc2rad= 2 * M_PI / enccountperrev;
+  m->I_max = 15; //Max current (peak of the sine wave in a phase)
+  m->V_Bus = 24; //Bus Voltage
+  m->max_edeltarad = 0.25f * M_PI;
+ 
+   //Motor parameters
+  m->Kt_Nm_Apeak = Kt_Nm_Arms / sqrt(2);
+  m->Ld = 10e-3; //[Henry] Ld induction: phase-zero
+  m->Lq = 10e-3; //[Henry] Lq induction: phase-zero
+  m->Lambda_m = Kt_Nm_Arms / (sqrt(2) * 1.5 * N_pp ); //[Weber] Note: on the fly changes of Kt do not adjust this value!
+  m->Kp;
+  m->fBW = 50.0;
+  m->alpha1 = 3.0;
+  m->alpha2 = 4.0;
+  m->fInt = fBW / 6.0;
+  m->fLP = fBW * 6.0;
+  m->N_pp = 4; //Number of pole pairs
+  
+  state->lfsr = 1;/* Any nonzero start state will work. */
+  state->ss_f = 1;
+}
+
+void setup() {
+  initparams( &motor );
+  initmotor( mot_conf_t* m )
+    
+  Serial.begin(1);
+  pinMode( engate , OUTPUT);
+ 
+
+  digitalWrite( engate , 0); // To be updated!
+ 
+  SPI_init();  // Disable this for DRV8302
+  xbar_init();
+  adc_init();
+  adc_etc_init();
+  flexpwm2_init();
+  flexpwm4_init();
+  syncflexpwm();
+  Encoders_init();
+
+
+  FLEXPWM2_OUTEN |= FLEXPWM_OUTEN_PWMA_EN( 7 ); // Activate all A channels
+  FLEXPWM4_OUTEN |= FLEXPWM_OUTEN_PWMA_EN( 7 ); // Activate all A channels
+
+  delay(100); //Allow the lowpass filters in current measurement to settle before calibration
+  setupready = 1;
+}
+
+void SPI_init() {
+  SPI.begin();
+  SPI.beginTransaction(SPISettings( 10e6 , MSBFIRST, SPI_MODE1)); //DRV8301 specsheet: 100 ns -> 10 Mhz. Set correct mode (fallingedgeof the clock).
+  pinMode(SSpin, OUTPUT);
+  int receivedVal16;
+  while (receivedVal16 != 0x1038) {
+  //while (receivedVal16 != 0x1008) {
+    digitalWrite(SSpin, LOW);
+    receivedVal16 = SPI.transfer16( (0 << 15) | (0x02 << 11) | (1 << 5) | (1 << 4) | (1 << 3) ); //Set 3 PWM inputs mode, disable OC mode
+    //receivedVal16 = SPI.transfer16( (0 << 15) | (0x02 << 11)  | (1 << 3) ); //Set 3 PWM inputs mode
+    digitalWrite(SSpin, HIGH);
+    digitalWrite(SSpin, LOW);
+    receivedVal16 = SPI.transfer16( (1 << 15) | (0x02 << 11)  ); // Read register two
+    digitalWrite(SSpin, HIGH);
+    digitalWrite(SSpin, LOW);
+    receivedVal16 = SPI.transfer16( (1 << 15) ); // Get the data
+    digitalWrite(SSpin, HIGH);
+  }
+  SPI.endTransaction();
+}
+
+void xbar_init() {
+  CCM_CCGR2 |= CCM_CCGR2_XBAR1(CCM_CCGR_ON);   //turn clock on for xbara1
+  xbar_connect(XBARA1_IN_FLEXPWM2_PWM1_OUT_TRIG0, XBARA1_OUT_ADC_ETC_TRIG00); //FlexPWM to adc_etc
+}
+
+void adc_init() {
+  //Tried many configurations, but this seems to be best:
+   ADC1_CFG =   ADC_CFG_OVWREN       //Allow overwriting of the next converted Data onto the existing
+              | ADC_CFG_ADICLK(0)    // input clock select - IPG clock
+              | ADC_CFG_MODE(2)      // 12-bit conversion 0 8-bit conversion 1 10-bit conversion 2  12-bit conversion
+              | ADC_CFG_ADIV(2)      // Input clock / 4
+              | ADC_CFG_ADSTS(0)     // Sample period (ADC clocks) = 3 if ADLSMP=0b
+              | ADC_CFG_ADHSC        // High speed operation
+              | ADC_CFG_ADTRG;       // Hardware trigger selected
+   ADC2_CFG = ADC1_CFG;
+ 
+  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_02 &= ~ (1 << 12) ; // disable keeper pin 14, as per manual
+  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_03 &= ~ (1 << 12) ; // disable keeper pin 15, as per manual
+  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_07 &= ~ (1 << 12) ; // disable keeper pin 16, as per manual
+  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_06 &= ~ (1 << 12) ; // disable keeper pin 17, as per manual
+  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_01 &= ~ (1 << 12) ; // disable keeper pin 18, as per manual
+  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_00 &= ~ (1 << 12) ; // disable keeper pin 19, as per manual
+
+  //Calibration of ADC
+  ADC1_GC |= ADC_GC_CAL;   // begin cal ADC1
+  while (ADC1_GC & ADC_GC_CAL) ;
+  ADC2_GC |= ADC_GC_CAL;   // begin cal ADC2
+  while (ADC2_GC & ADC_GC_CAL) ;
+
+  ADC1_HC0 = 16;   // ADC_ETC channel
+  ADC2_HC0 = 16;
+}
+
+void adc_etc_init() {
+  /* Must disable software reset first */
+  ADC_ETC_CTRL &= ~(1 << 31); // SOFTRST
+
+  /* Must clear ADC_ETC_CTRL_TSC_BYPASS bit if using ADC2 */
+  ADC_ETC_CTRL &= ~(1 << 30); // TSC_BYPASS
+
+  /* Enable the external XBAR trigger0 and trigger1. Trigger4 uses sync mode to get triggered */
+  ADC_ETC_CTRL |= 1;  // TRIG_ENABLE
+
+  /* ADC channel, pin numbers
+    7,  // 14/A0  AD_B1_02
+    8,  // 15/A1  AD_B1_03
+    12, // 16/A2  AD_B1_07
+    11, // 17/A3  AD_B1_06
+    6,  // 18/A4  AD_B1_01
+    5,  // 19/A5  AD_B1_00
+    
+    12, // 16/A2  AD_B1_07  M1 Ia
+    8,  // 15/A1  AD_B1_03  M1 Ib
+
+    6,  // 18/A4  AD_B1_01  M1 Va
+    5,  // 19/A5  AD_B1_00  M1 Vb
+
+    11, // 17/A3  AD_B1_06 Vbus
+
+  */
+
+  ADC_ETC_TRIG0_CTRL = ADC_ETC_TRIG_CTRL_TRIG_CHAIN(2); //TRIG chain length (0->1, 1->2, etc)
+
+  ADC_ETC_TRIG0_CHAIN_1_0 =
+    ADC_ETC_TRIG_CHAIN_IE1(0) |
+    ADC_ETC_TRIG_CHAIN_B2B1 |
+    ADC_ETC_TRIG_CHAIN_HWTS1(1) |
+    ADC_ETC_TRIG_CHAIN_CSEL1(6) |
+    ADC_ETC_TRIG_CHAIN_IE0(0) |
+    ADC_ETC_TRIG_CHAIN_B2B0 |
+    ADC_ETC_TRIG_CHAIN_HWTS0(1) |
+    ADC_ETC_TRIG_CHAIN_CSEL0(12);
+
+  ADC_ETC_TRIG0_CHAIN_3_2 =
+    ADC_ETC_TRIG_CHAIN_IE0(1) |
+    ADC_ETC_TRIG_CHAIN_B2B0 |
+    ADC_ETC_TRIG_CHAIN_HWTS0(1) |
+    ADC_ETC_TRIG_CHAIN_CSEL0(11);
+
+  ADC_ETC_TRIG4_CTRL = ADC_ETC_TRIG_CTRL_TRIG_CHAIN(2) | ADC_ETC_TRIG_CTRL_SYNC_MODE; //TRIG chain length (0->1, 1->2, etc), turn on sync mode
+  ADC_ETC_TRIG4_CHAIN_1_0 =
+    ADC_ETC_TRIG_CHAIN_IE1(0) |
+    ADC_ETC_TRIG_CHAIN_B2B1 |
+    ADC_ETC_TRIG_CHAIN_HWTS1(1) |
+    ADC_ETC_TRIG_CHAIN_CSEL1(5) |
+    ADC_ETC_TRIG_CHAIN_IE0(0) |
+    ADC_ETC_TRIG_CHAIN_B2B0 |
+    ADC_ETC_TRIG_CHAIN_HWTS0(1) |
+    ADC_ETC_TRIG_CHAIN_CSEL0(8);
+
+  ADC_ETC_TRIG4_CHAIN_3_2 =
+    ADC_ETC_TRIG_CHAIN_IE0(2) |
+    ADC_ETC_TRIG_CHAIN_B2B0 |
+    ADC_ETC_TRIG_CHAIN_HWTS0(1) |
+    ADC_ETC_TRIG_CHAIN_CSEL0(5);
+
+  attachInterruptVector(IRQ_ADC_ETC0, adcetc0_isr);
+  NVIC_ENABLE_IRQ(IRQ_ADC_ETC0);
+  attachInterruptVector(IRQ_ADC_ETC1, adcetc1_isr);
+  NVIC_ENABLE_IRQ(IRQ_ADC_ETC1);
+}
+
+void flexpwm2_init() {     //set PWM
+  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );//  Clear Load Okay LDOK(SM) -> no reload of PWM settings
+  FLEXPWM2_SM0CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
+  FLEXPWM2_SM1CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
+  FLEXPWM2_SM2CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
+  FLEXPWM2_SM0VAL1 = (uint32_t)((float)F_BUS_ACTUAL / f_pwm - 1) / 2; //Set the modulus value (dictates the frequency)
+  FLEXPWM2_SM1VAL1 = FLEXPWM2_SM0VAL1;  //Set the modulus value (dictates the frequency)
+  FLEXPWM2_SM2VAL1 = FLEXPWM2_SM0VAL1;  //Set the modulus value (dictates the frequency)
+  FLEXPWM2_SM0INIT = -FLEXPWM2_SM0VAL1; //Good for center aligned PWM, see manual
+  FLEXPWM2_SM1INIT = -FLEXPWM2_SM1VAL1; //Good for center aligned PWM, see manual
+  FLEXPWM2_SM2INIT = -FLEXPWM2_SM2VAL1; //Good for center aligned PWM, see manual
+
+  FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 / 2; //50% duty cycle
+  FLEXPWM2_SM0VAL2 = -FLEXPWM2_SM0VAL3; //50% duty cycle
+  FLEXPWM2_SM1VAL3 = FLEXPWM2_SM0VAL1 / 2; //50% duty cycle
+  FLEXPWM2_SM1VAL2 = -FLEXPWM2_SM0VAL3; //50% duty cycle
+  FLEXPWM2_SM2VAL3 = FLEXPWM2_SM0VAL1 / 2; //50% duty cycle
+  FLEXPWM2_SM2VAL2 = -FLEXPWM2_SM0VAL3; //50% duty cycle
+
+  //int adc_shift = 0; //New idea. Do not shift the ADC. Probably the ADC takes a quick sample of the signal at the right moment, rest of the time is to get the value.
+  //Back to old idea of shifting. Current measurements are better this way (less issue when high duty cycle:
+  const int adc_shift = 0; //Tuned by making it finish at the switch moment, then divide offset by 2.
+
+  FLEXPWM2_SM0VAL4 = 0 + adc_shift; // adc trigger 1
+  FLEXPWM2_SM0VAL5 = FLEXPWM2_SM0VAL1 + adc_shift; // adc trigger 2
+  
+  //FLEXPWM2_SM2VAL4 = FLEXPWM2_SM0VAL4; // adc trigger 1 to show on digital output 9
+  //FLEXPWM2_SM2VAL5 = FLEXPWM2_SM0VAL5; // adc trigger 2 to show on digital output 9
+
+  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 );// Load Okay LDOK(SM) -> reload setting again
+
+  //This triggers twice per PWM cycle:
+  FLEXPWM2_SM0TCTRL = FLEXPWM_SMTCTRL_OUT_TRIG_EN(1 << 4) | FLEXPWM_SMTCTRL_OUT_TRIG_EN(1 << 5); //  val 4 of Flexpwm sm0 as trigger; #define FLEXPWM_SMTCTRL_OUT_TRIG_EN(n)   ((uint16_t)(((n) & 0x3F) << 0))
+  //This triggers once per PWM cycle:
+  //FLEXPWM2_SM0TCTRL = FLEXPWM_SMTCTRL_OUT_TRIG_EN(1 << 5); //  val 4 of Flexpwm sm0 as trigger; #define FLEXPWM_SMTCTRL_OUT_TRIG_EN(n)   ((uint16_t)(((n) & 0x3F) << 0))
+
+  *(portConfigRegister(4)) = 1; //Set port 4 to the right mux value (found in pwm.c)
+  *(portConfigRegister(5)) = 1; //Set port 5 to the right mux value (found in pwm.c)
+  *(portConfigRegister(6)) = 2; //Set port 6 to the right mux value (found in pwm.c)
+
+  //FLEXPWM2_OUTEN |= FLEXPWM_OUTEN_PWMB_EN( 4 ); // Activate B channel
+  //*(portConfigRegister(9)) = 2; //Set port 9 to the right mux value (found in pwm.c)
+}
+
+void flexpwm4_init() {     //set PWM
+  FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );//  Clear Load Okay LDOK(SM) -> no reload of PWM settings
+  FLEXPWM4_SM0CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
+  FLEXPWM4_SM1CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
+  FLEXPWM4_SM2CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
+  FLEXPWM4_SM0VAL1 = (uint32_t)((float)F_BUS_ACTUAL / f_pwm - 1) / 2; //Set the modulus value (dictates the frequency)
+  FLEXPWM4_SM1VAL1 = FLEXPWM4_SM0VAL1;  //Set the modulus value (dictates the frequency)
+  FLEXPWM4_SM2VAL1 = FLEXPWM4_SM0VAL1;  //Set the modulus value (dictates the frequency)
+  FLEXPWM4_SM0INIT = -FLEXPWM4_SM0VAL1; //Good for center aligned PWM, see manual
+  FLEXPWM4_SM1INIT = -FLEXPWM4_SM1VAL1; //Good for center aligned PWM, see manual
+  FLEXPWM4_SM2INIT = -FLEXPWM4_SM2VAL1; //Good for center aligned PWM, see manual
+
+  FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 / 2; //50% duty cycle
+  FLEXPWM4_SM0VAL2 = -FLEXPWM4_SM0VAL3; //50% duty cycle
+  FLEXPWM4_SM1VAL3 = FLEXPWM4_SM0VAL1 / 2; //50% duty cycle
+  FLEXPWM4_SM1VAL2 = -FLEXPWM4_SM0VAL3; //50% duty cycle
+  FLEXPWM4_SM2VAL3 = FLEXPWM4_SM0VAL1 / 2; //50% duty cycle
+  FLEXPWM4_SM2VAL2 = -FLEXPWM4_SM0VAL3; //50% duty cycle
+
+  //int adc_shift = 0; //New idea. Do not shift the ADC. Probably the ADC takes a quick sample of the signal at the right moment, rest of the time is to get the value.
+  //Back to old idea of shifting. Current measurements are better this way (less issue when high duty cycle:
+  const int adc_shift = 0; //Tuned by making it finish at the switch moment, then divide offset by 2.
+
+  FLEXPWM4_SM0VAL4 = 0 + adc_shift; // adc trigger 1
+  FLEXPWM4_SM0VAL5 = FLEXPWM4_SM0VAL1 + adc_shift; // adc trigger 2
+
+  FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 );// Load Okay LDOK(SM) -> reload setting again
+
+  *(portConfigRegister(22)) = 1; //Set port 22 to the right mux value (found in pwm.c)
+  *(portConfigRegister(23)) = 1; //Set port 23 to the right mux value (found in pwm.c)
+  *(portConfigRegister(2)) = 1; //Set port 2 to the right mux value (found in pwm.c)
+}
+
+void syncflexpwm() {
+  cli()
+  //Set CTRL2 to the normal settings:
+  FLEXPWM2_SM0CTRL2 = FLEXPWM_SMCTRL2_INDEP; //Enable Independent pair, but disable Debug Enable and WAIT Enable. When set to one, the PWM will continue to run while the chip is in debug/WAIT mode.
+  FLEXPWM2_SM1CTRL2 = FLEXPWM_SMCTRL2_INDEP; //Enable Independent pair, but disable Debug Enable and WAIT Enable. When set to one, the PWM will continue to run while the chip is in debug/WAIT mode.
+  FLEXPWM2_SM2CTRL2 = FLEXPWM_SMCTRL2_INDEP; //Enable Independent pair, but disable Debug Enable and WAIT Enable. When set to one, the PWM will continue to run while the chip is in debug/WAIT mode.
+  FLEXPWM4_SM0CTRL2 = FLEXPWM_SMCTRL2_INDEP; //Enable Independent pair, but disable Debug Enable and WAIT Enable. When set to one, the PWM will continue to run while the chip is in debug/WAIT mode.
+  FLEXPWM4_SM1CTRL2 = FLEXPWM_SMCTRL2_INDEP; //Enable Independent pair, but disable Debug Enable and WAIT Enable. When set to one, the PWM will continue to run while the chip is in debug/WAIT mode.
+  FLEXPWM4_SM2CTRL2 = FLEXPWM_SMCTRL2_INDEP; //Enable Independent pair, but disable Debug Enable and WAIT Enable. When set to one, the PWM will continue to run while the chip is in debug/WAIT mode.
+
+  FLEXPWM2_SM0CTRL2 |= FLEXPWM_SMCTRL2_FRCEN;  // pin 4
+  FLEXPWM2_SM1CTRL2 |= FLEXPWM_SMCTRL2_INIT_SEL(2); // pin 5 Master sync from submodule 0 causes initialization.
+  FLEXPWM2_SM2CTRL2 |= FLEXPWM_SMCTRL2_INIT_SEL(2); // pin 6 Master sync from submodule 0 causes initialization.
+
+  FLEXPWM4_SM0CTRL2 |= FLEXPWM_SMCTRL2_FRCEN; // pin 22
+  FLEXPWM4_SM1CTRL2 |= FLEXPWM_SMCTRL2_INIT_SEL(2); // pin 23 Master sync from submodule 0 causes initialization.
+  FLEXPWM4_SM2CTRL2 |= FLEXPWM_SMCTRL2_INIT_SEL(2); // pin 2 Master sync from submodule 0 causes initialization.
+
+  //Sync flexpwm2 and flexpwm4
+  FLEXPWM2_SM0CTRL2 |= FLEXPWM_SMCTRL2_FORCE; // Force FlexPWM2
+  FLEXPWM4_SM0CTRL2 |= FLEXPWM_SMCTRL2_FORCE; // Force FlexPWM4. This is about 50 ns later than force of flexpwm2. No idea on how to improve this
+
+  sei();
+}
+
+void Encoders_init() {
+  Encoder1.setInitConfig();
+  //Optional filters
+  Encoder1.EncConfig.filterCount = 3; //Bit of filtering to avoid spurious triggering.
+  Encoder1.EncConfig.filterSamplePeriod = 3; //Bit of filtering to avoid spurious triggering.
+  Encoder1.EncConfig.INDEXTriggerMode  = 1;
+  Encoder1.EncConfig.IndexTrigger  = 1;
+  Encoder1.EncConfig.positionInitialValue = 0;
+  Encoder1.init();
+
+  Encoder2.setInitConfig();
+  Encoder2.EncConfig.filterCount = 3; //Bit of filtering to avoid spurious triggering.
+  Encoder2.EncConfig.filterSamplePeriod = 3; //Bit of filtering to avoid spurious triggering.
+  Encoder2.EncConfig.INDEXTriggerMode = 1;
+  Encoder2.EncConfig.IndexTrigger  = 1;
+  Encoder2.EncConfig.positionInitialValue = 0;
+  Encoder2.init();
+}
+
+//////////////////////////////////////////////////////////////////////////////////
+////// Start of the real time code, everything runs in the adc interrupts.  //////
+//////////////////////////////////////////////////////////////////////////////////
+
+void loop() {
+}
+
+void adcetc0_isr() {
+  ADC_ETC_DONE0_1_IRQ &= 1;   // clear
+}
+
+void adcetc1_isr() {
+  ADC_ETC_DONE0_1_IRQ &= 1 << 20;   // clear
+  curtime = micros();
+  is_v7 = (FLEXPWM2_SM0STS & FLEXPWM_SMSTS_CMPF(2));  //is_v7 = True when in v7
+  FLEXPWM2_SM0STS |= FLEXPWM_SMSTS_CMPF(2); //Reset flag
+  sens1 = (ADC_ETC_TRIG0_RESULT_1_0 & 4095) * 0.0008058608; // 4095.0 * 3.3;
+  sens1_lp = lowpassIsens1->process( sens1 );
+  sens3 = ((ADC_ETC_TRIG0_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
+  sens3_lp = lowpassIsens3->process( sens3 );
+  sensBus = (ADC_ETC_TRIG0_RESULT_3_2 & 4095) * Busadc2Vbus;   // 4095.0 * 3.3 * ((68.3+5.05)/5.05);
+  sensBus_lp = lowpass_sensbus->process( sensBus );
+  
+  if (sensBus > V_Bus + 1 ) {
+    //    digitalWrite( chopperpin , HIGH);
+  }
+  else {
+    //    digitalWrite( chopperpin , LOW);
+  }
+  if (sensBus > 45 ) {
+    OutputOn = false;
+    if (firsterror == 0) {
+      firsterror = 41;
+    }
+  }
+  sens2 = (ADC_ETC_TRIG4_RESULT_1_0 & 4095) * 0.0008058608; // 4095.0 * 3.3;
+  sens2_lp = lowpassIsens2->process( sens2 );
+  sens4 = ((ADC_ETC_TRIG4_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
+  sens4_lp = lowpassIsens4->process( sens4 );
+  if (setupready == 1) {
+    if (n_senscalib < 1e4) {
+      n_senscalib++;
+      sens1_calib += sens1_lp;
+      sens2_calib += sens2_lp;
+      sens3_calib += sens3_lp;
+      sens4_calib += sens4_lp;
+    }
+    else if (n_senscalib == 1e4) {
+      sens1_calib /= n_senscalib;
+      sens2_calib /= n_senscalib;
+      sens3_calib /= n_senscalib;
+      sens4_calib /= n_senscalib;
+      n_senscalib++;
+    }
+    else {
+      updateDisturbance(); //Switched this before readENC to have a fresher encoder position
+      GenSetpoint();
+      readENC();
+      Control();
+      Transforms();
+      changePWM();
+      communicationProcess();
+    }
+  }
+}
+
+void updateDisturbance() {
+  //PRBS
+  downsamplePRBS++;
+  if ( downsamplePRBS > NdownsamplePRBS) {
+    downsamplePRBS = 1;
+    noisebit  = ((lfsr >> 5) ^ (lfsr >> 7) ) & 1;  // taps: 11 9; feedback polynomial: x^11 + x^9 + 1
+    lfsr =  (lfsr >> 1) | (noisebit << 15);
+  }
+
+  //Single Sine
+  if ( curtime / 1e6 >= (ss_tstart + ss_n_aver / ss_f )) {
+    ss_f += ss_fstep;
+    ss_tstart = curtime / 1e6;
+    if (ss_f > ss_fend)
+    {
+      ss_f = 0;
+      ss_phase = 0;
+      ss_tstart = 1e8;
+      ss_gain = 0;
+      ss_offset = 0;
+    }
+  }
+  ss_phase += ss_f * 2 * M_PI * T;
+  if ( ss_phase >= 2 * M_PI) {
+    ss_phase -= 2 * M_PI; //Required, because high value floats are inaccurate
+  }
+  float ss_offset_lp = lowpass_ss_offset->process( ss_offset );
+  //ss_out = ss_offset_lp + ss_gain * arm_sin_f32( ss_phase ); //sin() measured to be faster then sinf(); arm_sin_f32() is way faster!
+  ss_out = ss_offset_lp + ss_gain * sin( ss_phase );
+  dist = distval * 1 * (noisebit - 0.5) + distoff + ss_out;
+}
+
+void GenSetpoint() {
+  SPprofile->REFidir = SPdir;
+  SPprofile->rdelay = rdelay;
+
+  if (SPprofile->REFstatus != 1) { // if not running SP
+    SPprofile->REFstatus = 0; //Make sure sp generator is ready for sp generation
+    if (spNgo > 0) {
+      spGO = 1;
+      spNgo -= 1;
+    }
+    else {
+      spGO = 0;
+    }
+  }
+  REFstatus = SPprofile->REFstatus;
+  rmech = SPprofile->stateCalculation( spGO );
+
+  offsetVel_lp = lowpassSP->process( offsetVel );
+  offsetVelTot += offsetVel_lp * T;
+  rmech += offsetVelTot ;
+
+  rmech2 = -rmech;
+  rmech  += rmechoffset;
+  rmech2 += rmechoffset2;
+
+  acc = SPprofile->aref;
+  vel = SPprofile->vref + offsetVelTot;
+  we = vel * N_pp;  //Electrical speed [rad/s], based on setpoint
+  
+  acc2 = -acc;
+  vel2 = -vel;
+
+  //When no setpoint is running, always convert reference to nearest encoder count to avoid noise
+  if (SPprofile->REFstatus == 0 && offsetVel_lp == 0) {
+    rmech = int((rmech / enc2rad)) * enc2rad;
+  }
+  if (SPprofile->REFstatus == 0 && offsetVel_lp == 0) {
+    rmech2 = int((rmech2 / enc2rad2)) * enc2rad2;
+  }
+
+}
+
+
+void readENC() {
+  encoderPos1 = Encoder1.read();
+  encoderPos2 = Encoder2.read();
+  IndexFound1 = Encoder1.indexfound();
+  IndexFound2 = Encoder2.indexfound();
+}
+
+void Control() {
+  ymech1 = encoderPos1 * enc2rad;
+  ymech2 = encoderPos2 * enc2rad2;
+  if (hfi_useforfeedback == 1) {
+    ymech1 = hfi_abs_pos / N_pp;
+  }
+  emech1 = rmech - ymech1;
+  emech2 = rmech2 - ymech2;
+  if (haptic == 1) {
+    emech1 = rmech - ymech1 - ymech2;
+    emech2 = 0;
+  }
+
+  if ((abs(emech1) > 0.5) & (Kp > 0) )
+  {
+    OutputOn = false;
+    if (firsterror == 0) {
+      firsterror = 1;
+    }
+  }
+  if (OutputOn == false) {
+    emech1 = 0;
+    integrator->setState(0);
+    lowpass->InitStates(0);
+  }
+  //  if (abs(emech2) > 0.5 & Kp2 > 0 )
+  //  {
+  //    OutputOn = false;
+  //    if (firsterror == 0) {
+  //      firsterror = 21;
+  //    }
+  //  }
+  if (OutputOn == false) {
+    emech2 = 0;
+    integrator2->setState(0);
+    lowpass2->InitStates(0);
+  }
+  if (Kp == 0) {
+    integrator->setState(0);
+  }
+  if (Kp2 == 0) {
+    integrator2->setState(0);
+  }
+
+  mechcontout = Kp * leadlag->process( emech1 );
+  mechcontout = lowpass->process( mechcontout );
+
+  mechcontout2 = Kp2 * leadlag2->process( emech2 );
+  mechcontout2 = lowpass2->process( mechcontout2 );
+
+  // Clipping to be improved...
+  Iout = integrator->processclip( mechcontout , -I_max * (1.5 * N_pp * Lambda_m ) - mechcontout , I_max * (1.5 * N_pp * Lambda_m ) - mechcontout );
+
+  mechcontout += Iout;
+  mechcontout += acc * Jload * OutputOn;
+  mechcontout += vel * velFF * OutputOn;
+  mechcontout += dist * mechdistgain;
+
+  mechcontout2 += Iout2;
+  mechcontout2 += acc2 * Jload2 * OutputOn;
+  mechcontout2 += vel2 * velFF2 * OutputOn;
+  mechcontout2 += dist * mechdistgain;
+
+  if (haptic == 1) {
+    mechcontout2 = mechcontout;
+  }
+
+
+  if (OutputOn == false) {
+    vq_int_state = 0;
+    vd_int_state = 0;
+    integrator_Id2->setState(0);
+    integrator_Iq2->setState(0);
+  }
+
+  Iq_SP = mechcontout / (1.5 * N_pp * Lambda_m );
+
+  Iq_SP2 = mechcontout2 / Kt_Nm_Apeak2;
+}
+
+void Transforms()
+{
+  // Calculate currents
+  if (useIlowpass == 1)
+  {
+    ia = adc2A1 * (sens1_lp - sens1_calib);
+    ib = adc2A1 * (sens2_lp - sens2_calib);
+    ia2 = adc2A2 * (sens3_lp - sens3_calib);
+    ib2 = adc2A2 * (sens4_lp - sens4_calib);
+  }
+  else {
+    ia = adc2A1 * (sens1 - sens1_calib);
+    ib = adc2A1 * (sens2 - sens2_calib);
+    ia2 = adc2A2 * (sens3 - sens3_calib);
+    ib2 = adc2A2 * (sens4 - sens4_calib);
+  }
+
+  // For Park and Clarke see https://www.cypress.com/file/222111/download
+  // Power-variant Clarke transform. Asuming ia+ib+ic=0:
+  Ialpha = ia;
+  Ibeta = one_by_sqrt3 * ia + two_by_sqrt3 * ib;
+
+  Ialpha2 = ia2;
+  Ibeta2 = one_by_sqrt3 * ia2 + two_by_sqrt3 * ib2;
+
+  // Park transform, ride the wave option
+  thetaPark_enc = N_pp * (encoderPos1 % enccountperrev) * enc2rad + commutationoffset; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
+  if (reversecommutation) {
+    thetaPark_enc *= -1;
+  }
+  while ( thetaPark_enc >= 2 * M_PI) {
+    thetaPark_enc -= 2 * M_PI;
+  }
+  while ( thetaPark_enc < 0) {
+    thetaPark_enc += 2 * M_PI;
+  }
+
+  //Angle observer by mxlemming
+  float L = (Ld + Lq) / 2;
+  BEMFa = BEMFa + (Valpha - R * Ialpha) * T -
+          L * (Ialpha - Ialpha_last);
+  BEMFb = BEMFb + (Vbeta - R * Ibeta) * T -
+          L * (Ibeta - Ibeta_last)  ;
+  Ialpha_last = Ialpha;
+  Ibeta_last = Ibeta;
+  if (BEMFa > Lambda_m  ) {
+    BEMFa = Lambda_m ;
+  }
+  if (BEMFa < -Lambda_m ) {
+    BEMFa = -Lambda_m ;
+  }
+  if (BEMFb > Lambda_m ) {
+    BEMFb = Lambda_m ;
+  }
+  if (BEMFb < -Lambda_m ) {
+    BEMFb = -Lambda_m ;
+  }
+  thetaPark_obs = atan2(BEMFb, BEMFa);
+
+  while ( thetaPark_obs >= 2 * M_PI) {
+    thetaPark_obs -= 2 * M_PI;
+  }
+  while ( thetaPark_obs < 0) {
+    thetaPark_obs += 2 * M_PI;
+  }
+  //Check and remove nan
+  if (thetaPark_obs != thetaPark_obs) {
+    thetaPark_obs = thetaPark_obs_prev;
+  }
+  thetaPark_obs_prev = thetaPark_obs;
+
+
+
+  //Angle observer (VESC)
+  float L_ia = L * Ialpha;
+  float L_ib = L * Ibeta;
+  float gamma_half = observer_gain * 0.5;
+
+  float err = sq(Lambda_m) - (sq(x1 - L_ia) + sq(x2 - L_ib));
+  if (err > 0.0) {
+    err = 0.0;
+  }
+
+  // Misschien Valpha en beta nog wat draaien voor motor rotatie?
+  float x1_dot = Valpha - R * Ialpha + gamma_half * (x1 - L_ia) * err;
+  float x2_dot = Vbeta  - R * Ibeta  + gamma_half * (x2 - L_ib) * err;
+  x1 += x1_dot * T;
+  x2 += x2_dot * T;
+
+  UTILS_NAN_ZERO(x1);
+  UTILS_NAN_ZERO(x2);
+
+  // Prevent the magnitude from getting too low, as that makes the angle very unstable.
+  float mag = NORM2_f(x1, x2);
+  if (mag < (Lambda_m * 0.5)) {
+    x1 *= 1.1;
+    x2 *= 1.1;
+  }
+  thetaPark_vesc = atan2( x2 - L_ib, x1 - L_ia);
+  while ( thetaPark_vesc >= 2 * M_PI) {
+    thetaPark_vesc -= 2 * M_PI;
+  }
+  while ( thetaPark_vesc < 0) {
+    thetaPark_vesc += 2 * M_PI;
+  }
+  if (x1 > Lambda_m  ) {
+    x1 = Lambda_m ;
+  }
+  if (x1 < -Lambda_m ) {
+    x1 = -Lambda_m ;
+  }
+  if (x2 > Lambda_m ) {
+    x2 = Lambda_m ;
+  }
+  if (x2 < -Lambda_m ) {
+    x2 = -Lambda_m ;
+  }
+
+
+
+  if (anglechoice == 0) {
+    thetaPark = thetaPark_enc;
+  }
+  else if (anglechoice == 1) {
+    thetaPark = thetaPark_obs;
+  }
+  else if (anglechoice == 2) {
+    thetaPark = thetaPark_vesc;
+  }
+  else if (anglechoice == 3 ) {
+    if( abs(vel) < hfi_maxvel ){
+        hfi_on = true;
+        thetaPark = hfi_dir;
+        }
+     else{
+        hfi_on = false;
+        thetaPark = thetaPark_obs;
+     }
+  }
+  else if (anglechoice == 99) {
+    utils_step_towards((float*)&i_vector_radpers_act, i_vector_radpers, i_vector_acc * T );
+    thetaPark += T * i_vector_radpers_act;
+  }
+  else {
+    thetaPark = 0;
+  }
+
+  // Phase advance
+  thetaPark += eradpers_lp * T * advancefactor;
+
+  while ( thetaPark >= 2 * M_PI) {
+    thetaPark -= 2 * M_PI;
+  }
+  while ( thetaPark < 0) {
+    thetaPark += 2 * M_PI;
+  }
+
+  // erpm estimator
+  edeltarad = thetaPark - thetaParkPrev;
+  if (edeltarad > M_PI) {
+    edeltarad -= 2 * M_PI;
+  }
+  if (edeltarad < -M_PI) {
+    edeltarad += 2 * M_PI;
+  }
+  //Limit change of thetaPark to 45 deg per cycle:
+  if (edeltarad > max_edeltarad) {
+    edeltarad = max_edeltarad;
+    thetaPark = thetaParkPrev + edeltarad;
+  }
+  else if (edeltarad < -max_edeltarad) {
+    edeltarad = -max_edeltarad;
+    thetaPark = thetaParkPrev + edeltarad;
+  }
+  eradpers_lp = lowpass_eradpers->process( edeltarad / T );
+  erpm = eradpers_lp * 60 / 2 / M_PI;
+  thetaParkPrev = thetaPark;
+  hfi_abs_pos += edeltarad;
+
+  //  thetaPark2 = 8 * (encoderPos2 % enccountperrev2) * enc2rad2 + commutationoffset2; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
+  //  while ( thetaPark2 >= 2 * M_PI) {
+  //    thetaPark2 -= 2 * M_PI;
+  //  }
+  //  while ( thetaPark2 < 0) {
+  //    thetaPark2 += 2 * M_PI;
+  //  }
+
+  if (ridethewave == 1 ) {
+    if ((IndexFound1) < 1 ) {
+      thetaPark = thetawave;
+      thetawave -= 10 * 2 * M_PI * T;
+      Vq = 1.5;
+    }
+    else {
+      Vq = 0;
+      ridethewave = 2;
+      thetawave = 0;
+    }
+  }
+
+  if (ridethewave2 == 1 ) {
+    if ((IndexFound2) < 1 ) {
+      thetaPark2 = thetawave2;
+      thetawave2 -= 10 * 2 * M_PI * T;
+      Vq2 = 1.5;
+    }
+    else {
+      Vq2 = 0;
+      ridethewave2 = 2;
+      thetawave2 = 0;
+    }
+  }
+
+  Iq_SP += muziek_gain * muziek[ (curloop / (50 / (int)Ts)) % (sizeof(muziek) / 4) ];
+  Iq_SP += dist * Iq_distgain;
+
+  Iq_SP += Iq_offset_SP;
+
+  Id_SP = Id_offset_SP;
+  Id_SP += dist * Id_distgain;
+
+  Iq_SP2 += muziek_gain * muziek[ (curloop / (50 / (int)Ts)) % (sizeof(muziek) / 4) ];
+  Iq_SP2 += dist * Iq_distgain;
+
+  Id_SP2 = Id_offset_SP2;
+  Id_SP2 += dist * Id_distgain;
+
+  co = cos(thetaPark);
+  si = sin(thetaPark);
+
+  co2 = cos(thetaPark2);
+  si2 = sin(thetaPark2);
+
+
+  // Park transform
+  Id_meas = co * Ialpha + si * Ibeta;
+  Iq_meas = co * Ibeta  - si * Ialpha;
+
+  Id_meas_lp = lowpassId1->process( Id_meas );
+  Iq_meas_lp = lowpassIq1->process( Iq_meas );
+
+  Id_meas2 = co2 * Ialpha2 + si2 * Ibeta2;
+  Iq_meas2 = co2 * Ibeta2  - si2 * Ialpha2;
+  Id_meas2_lp = lowpassId2->process( Id_meas2 );
+  Iq_meas2_lp = lowpassIq2->process( Iq_meas2 );
+
+
+  P_tot = 1.5 * ( Vq * Iq_meas_lp + Vd * Id_meas_lp);
+  I_bus = P_tot / sensBus_lp;
+
+  // HFI
+  if ( hfi_on ) {
+    hfi_V_act = hfi_V;
+    if (hfi_firstcycle) {
+      hfi_V_act /= 2;
+      hfi_firstcycle = false;
+    }
+    if (hfi_V != hfi_prev){
+      hfi_V_act = hfi_prev + (hfi_V-hfi_prev)/2;
+    }
+    if (is_v7) {
+      hfi_Id_meas_high = Id_meas;
+      hfi_Iq_meas_high = Iq_meas;
+    }
+    else {
+      hfi_V_act = -hfi_V_act;
+      hfi_Id_meas_low = Id_meas;
+      hfi_Iq_meas_low = Iq_meas;
+    }
+    delta_id = hfi_Id_meas_high - hfi_Id_meas_low;
+    delta_iq = hfi_Iq_meas_high - hfi_Iq_meas_low;
+    //hfi_curangleest = 0.25f * atan2( -delta_iq  , delta_id - 0.5 * hfi_V * T * ( 1 / Ld + 1 / Lq ) ); //Complete calculation (not needed because error is always small due to feedback). 0.25 comes from 0.5 because delta signals are used and 0.5 due to 2theta (not just theta) being in the sin and cos wave.
+    if(hfi_method ==1 || hfi_method ==3 ){
+      hfi_curangleest =  0.5f * delta_iq / (hfi_V * T * ( 1 / Lq - 1 / Ld ) ); //0.5 because delta_iq is twice the iq value
+    }
+    else if(hfi_method ==2 || hfi_method == 4){
+      if (is_v7) {
+        hfi_curangleest =  (Iq_meas - Iq_SP) / (hfi_V * T * ( 1 / Lq - 1 / Ld ) );
+      }
+      else {
+        hfi_curangleest =  (Iq_meas - Iq_SP) / (-hfi_V * T * ( 1 / Lq - 1 / Ld ) );
+      }
+    }
+    hfi_error = -hfi_curangleest; //Negative feedback
+    if (hfi_use_lowpass){
+      hfi_error = hfi_lowpass->process( hfi_error );
+    }
+    hfi_dir_int += T * hfi_error * hfi_gain_int2; //This the the double integrator
+
+    float hfi_half_int = hfi_gain * 0.5f * T * hfi_error;
+    hfi_contout += hfi_half_int + hfi_half_int_prev + hfi_dir_int; //This is the integrator and the double integrator
+    if(hfi_method ==3 || hfi_method == 4){
+      hfi_ffw = we * T;
+      hfi_contout += hfi_ffw; //This is the feedforward
+    }
+    while ( hfi_contout >= 2 * M_PI) {
+      hfi_contout -= 2 * M_PI;
+    }
+    while ( hfi_contout < 0) {
+      hfi_contout += 2 * M_PI;
+    }
+    while ( hfi_contout >= 2 * M_PI) {
+      hfi_contout -= 2 * M_PI;
+    }
+    while ( hfi_contout < 0) {
+      hfi_contout += 2 * M_PI;
+    }
+    
+    hfi_dir = hfi_contout + dist * hfi_distgain;
+    
+    while ( hfi_dir >= 2 * M_PI) {
+      hfi_dir -= 2 * M_PI;
+    }
+    while ( hfi_dir < 0) {
+      hfi_dir += 2 * M_PI;
+    }
+    while ( hfi_dir_int >= 2 * M_PI) {
+      hfi_dir_int -= 2 * M_PI;
+    }
+    while ( hfi_dir_int < 0) {
+      hfi_dir_int += 2 * M_PI;
+    }
+    hfi_half_int_prev = hfi_half_int;
+  }
+  else {
+    hfi_dir = thetaPark_obs;
+    hfi_contout = thetaPark_obs;
+    hfi_dir_int = 0;
+    hfi_half_int_prev = 0;
+    hfi_firstcycle = true;
+    hfi_Id_meas_low = 0;
+    hfi_Iq_meas_low = 0;
+    hfi_Id_meas_high = 0;
+    hfi_Iq_meas_high = 0;
+    hfi_V_act = 0;
+  }
+  hfi_prev = hfi_V;
+
+  if (ridethewave != 1 ) {
+    if (OutputOn == true) {
+      Id_e = Id_SP - Id_meas;
+      Iq_e = Iq_SP - Iq_meas;
+    }
+    else {
+      Id_e = 0;
+      Iq_e = 0;
+    }
+
+    Vq = Kp_iq * Iq_e;
+    float vq_half_int = Ki_iq * T * 0.5f * Vq;
+    vq_int_state += vq_half_int;
+    Vq += vq_int_state;
+    vq_int_state += vq_half_int;
+
+    //Additional Vq
+    Vq += VSP;
+    Vq += dist * Vq_distgain;
+
+    Vd = Kp_id * Id_e;
+    float vd_half_int = Ki_id * T * 0.5f * Vd;
+    vd_int_state += vd_half_int;
+    Vd += vd_int_state;
+    vd_int_state += vd_half_int;
+
+    //Additional Vd
+    Vd += dist * Vd_distgain;
+    Vd += hfi_V_act;
+
+    // PMSM decoupling control and BEMF FF
+    VqFF = we * ( Ld * Id_meas + Lambda_m);
+
+    // q axis induction FFW based on setpoint FFW
+    VqFF += SPprofile->jref * Jload * Lq * Kt_Nm_Apeak * OutputOn;
+
+    Vq += VqFF;
+    VdFF = -we * Lq * Iq_meas;
+    Vd += VdFF;
+  }
+
+  Vq += muziek_gain_V * muziek[ (curloop / (50 / (int)Ts)) % (sizeof(muziek) / 4) ];
+
+  // Voltage clipping
+  maxVolt = maxDutyCycle * sensBus_lp * one_by_sqrt3;
+  Vtot = NORM2_f( Vd , Vq );
+  if ( Vtot > maxVolt) {
+    if ( abs( Vd ) > maxVolt) {
+      if (Vd > 0) {
+        Vd = maxVolt;
+      }
+      else {
+        Vd = -maxVolt;
+      }
+      if (abs(vd_int_state) > abs(Vd)) {
+        vd_int_state = Vd;
+      }
+    }
+    if (sq(Vd) >= sq(maxVolt)) { //Vd cannot be larger than maxvolt, so no issue with sqrt of negative values. Still get nan Vq somehow. Fix:
+      Vq = 0;
+    }
+    else {
+      if ( Vq > 0 ) {
+        Vq = sqrt(sq(maxVolt) - sq(Vd)) ;
+      }
+      else {
+        Vq = -sqrt(sq(maxVolt) - sq(Vd)) ;
+      }
+    }
+    if (abs(vq_int_state) > abs(Vq)) {
+      vq_int_state = Vq;
+    }
+  }
+
+  // Inverse park transform
+  Valpha = co * Vd - si * Vq;
+  Vbeta  = co * Vq + si * Vd;
+
+  Valpha += Valpha_offset + Valpha_offset_hfi;
+  Vbeta += Vbeta_offset + Vbeta_offset_hfi;
+
+  if (Valpha > maxVolt) {
+    Valpha = maxVolt;
+  }
+  if (Vbeta > maxVolt) {
+    Vbeta = maxVolt;
+  }
+  if (Valpha < -maxVolt) {
+    Valpha = -maxVolt;
+  }
+  if (Vbeta < -maxVolt) {
+    Vbeta = -maxVolt;
+  }
+
+  // Inverse Power-variant Clarke transform
+  Va = Valpha;
+  Vb = -0.5 * Valpha + sqrt3_by_2 * Vbeta;
+  Vc = -0.5 * Valpha - sqrt3_by_2 * Vbeta;
+
+  //See https://microchipdeveloper.com/mct5001:start Zero Sequence Modulation Tutorial
+  float Vcm = -(max(max(Va, Vb), Vc) + min(min(Va, Vb), Vc)) / 2;
+  Va += Vcm + sensBus_lp / 2;
+  Vb += Vcm + sensBus_lp / 2;
+  Vc += Vcm + sensBus_lp / 2;
+
+  //Calculate modulation times
+  tA = Va / sensBus_lp;
+  tB = Vb / sensBus_lp;
+  tC = Vc / sensBus_lp;
+
+  //Motor 2 (needs to be updated, can probably be done much nicer):
+  if (ridethewave2 != 1 ) {
+    if (OutputOn == true) {
+      Id_e2 = Id_SP2 - Id_meas2;
+      Iq_e2 = Iq_SP2 - Iq_meas2;
+    }
+    else {
+      Id_e2 = 0;
+      Iq_e2 = 0;
+    }
+    Vq2 = Icontgain2 * Iq_e2;
+    Vq2 += integrator_Iq2->processclip( Vq2 , -V_Bus - Vq2 , V_Bus - Vq2 );
+
+    //Additional Vq
+    Vq2 += VSP;
+    Vq2 += dist * Vq_distgain;
+
+    Vd2 = Icontgain2 * Id_e2;
+    Vd2 += integrator_Id2->processclip( Vd2 , -V_Bus - Vd2 , V_Bus - Vd2 );
+
+    //Additional Vd
+    Vd2 += dist * Vd_distgain;
+
+    we2 = vel2 * 8;  //Electrical speed [rad/s], based on setpoint
+
+    // PMSM decoupling control and BEMF FF
+    VqFF2 = we2 * ( Ld2 * Id_meas2 + Lambda_m2);
+
+    // q axis induction FFW based on setpoint FFW
+    VqFF2 += SPprofile->jref * Jload2 * Lq2 * Kt_Nm_Apeak2 * OutputOn;
+
+    Vq2 += VqFF2;
+    VdFF2 = -we2 * Lq2 * Iq_meas2;
+    Vd2 += VdFF2;
+  }
+
+  Vq2 += muziek_gain_V * muziek[ (curloop / (50 / (int)Ts)) % (sizeof(muziek) / 4) ];
+
+  // Inverse park transform
+  Valpha2 = co2 * Vd2 - si2 * Vq2;
+  Vbeta2  = co2 * Vq2 + si2 * Vd2;
+
+  Valpha2 += Valpha2_offset;
+
+  // Inverse Power-variant Clarke transform
+  Va2 = Valpha2;
+  Vb2 = -0.5 * Valpha2 + sqrt3_by_2 * Vbeta2;
+  Vc2 = -0.5 * Valpha2 - sqrt3_by_2 * Vbeta2;
+
+  //See https://microchipdeveloper.com/mct5001:start Zero Sequence Modulation Tutorial
+  // These lines make SVM happen:
+  float Vcm2 = -(max(max(Va2, Vb2), Vc2) + min(min(Va2, Vb2), Vc2)) / 2;
+  Va2 += Vcm2 + sensBus_lp / 2;
+  Vb2 += Vcm2 + sensBus_lp / 2;
+  Vc2 += Vcm2 + sensBus_lp / 2;
+
+  //Calculate modulation times
+  tA2 = Va2 / sensBus_lp;
+  tB2 = Vb2 / sensBus_lp;
+  tC2 = Vc2 / sensBus_lp;
+
+}
+
+void changePWM() {
+  if (tA > 1) {
+    tA = 1;
+  }
+  if (tB > 1) {
+    tB = 1;
+  }
+  if (tC > 1) {
+    tC = 1;
+  }
+
+  if (tA < 0) {
+    tA = 0;
+  }
+  if (tB < 0) {
+    tB = 0;
+  }
+  if (tC < 0) {
+    tC = 0;
+  }
+
+  if ( (abs(Id_SP) > I_max) || (abs(Iq_SP) > I_max) ) {
+    OutputOn = false;
+    if (firsterror == 0) {
+      firsterror = 3;
+    }
+  }
+  if ( (abs(Id_meas) > I_max) || (abs(Iq_meas) > I_max)  ) {
+    OutputOn = false;
+    if (firsterror == 0) {
+      firsterror = 4;
+    }
+  }
+
+  //  if ( (abs(Id_SP2) > I_max) || (abs(Iq_SP2) > I_max) ) {
+  //    OutputOn = false;
+  //    if (firsterror == 0) {
+  //      firsterror = 23;
+  //    }
+  //  }
+  //  if ( (abs(Id_meas2) > I_max) || (abs(Iq_meas2) > I_max)  ) {
+  //    OutputOn = false;
+  //    if (firsterror == 0) {
+  //      firsterror = 24;
+  //    }
+  //  }
+
+  //  //Motor 1, flexpwm2:
+  //  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
+  //  if (OutputOn == false) {
+  //    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 / 2;
+  //    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 / 2;
+  //    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 / 2;
+  //  }
+  //  else {
+  //    // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
+  //    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 * tA;
+  //    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 * tB;
+  //    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 * tC;
+  //  }
+  //  FLEXPWM2_SM0VAL2 = -FLEXPWM2_SM0VAL3;
+  //  FLEXPWM2_SM1VAL2 = -FLEXPWM2_SM1VAL3;
+  //  FLEXPWM2_SM2VAL2 = -FLEXPWM2_SM2VAL3;
+  //  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
+
+  //Motor 1, flexpwm4:
+  FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
+  if (OutputOn == false) {
+    digitalWrite( engate , 0);
+    FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 / 2;
+    FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 / 2;
+    FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 / 2;
+  }
+  else {
+    // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
+    digitalWrite( engate , 1);
+    FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 * tB;
+    FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 * tC;
+    FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 * tA;
+  }
+  FLEXPWM4_SM0VAL2 = -FLEXPWM4_SM0VAL3;
+  FLEXPWM4_SM1VAL2 = -FLEXPWM4_SM1VAL3;
+  FLEXPWM4_SM2VAL2 = -FLEXPWM4_SM2VAL3;
+  FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
+}
+
+void communicationProcess() {
+  if (Serial.available() > 0) {
+    processSerialIn();
+  }
+  if (trace.send_all) {
+    static uint32_t i_total = 0;
+    for ( uint32_t i = 0; i < 14; i++) {
+      if (( trace.all_pointers[i_total] != NULL && i_total < sizeof(trace.all_pointers))) {
+        Serial.write( trace.all_pointers[i_total] , trace.all_lengths[i_total]);
+        i_total++;
+      }
+      else {
+        i_total = 0;
+        trace.send_all = false;
+        break;
+      }
+    }
+    delay(1);
+  }
+  if ( trace.n_to_send > 0) {
+    for ( uint32_t i = 0; i < sizeof(trace.pointers) ; i++) {
+      if ( trace.pointers[i] == NULL) {
+        break;
+      }
+      Serial.write( trace.pointers[i] , trace.lengths[i]);
+    }
+    trace.n_to_send--;
+  }
+}
+
+void xbar_connect(unsigned int input, unsigned int output)
+{
+  if (input >= 88) return;
+
+  if (output >= 132) return;
+  volatile uint16_t *xbar = &XBARA1_SEL0 + (output / 2);
+  uint16_t val = *xbar;
+  if (!(output & 1)) {
+    val = (val & 0xFF00) | input;
+  } else {
+    val = (val & 0x00FF) | (input << 8);
+  }
+  *xbar = val;
+}
+
+
+void processSerialIn() {
+
+    char serialoption = Serial.read();
+    uint32_t isignal;
+    switch (serialoption) {
+      case 'a':
+        {
+          trace.send_all = true;
+          break;
+        }
+      case 'b':
+        {
+          Serial.readBytes( (char*)&trace.n_to_send , 4);
+          break;
+        }
+      case 'g': //Get specific signal(s) from array
+        {
+          Serial.readBytes( (char*)&isignal , 4);
+          uint32_t signallocation;
+          Serial.readBytes( (char*)&signallocation , 4);
+          uint32_t signallength;
+          Serial.readBytes( (char*)&signallength , 4);
+          uint8_t memberlength = signaltomemberlength( isignal );
+          Serial.write( trace.all_pointers[isignal] + (signallocation * memberlength) , signallength );
+          break;
+        }
+      case 'G': //Get signal
+        {
+          Serial.readBytes( (char*)&isignal , 4);
+          Serial.write( trace.all_pointers[isignal] , trace.all_lengths[isignal]);
+          break;
+        }
+      case 's': //Set specific paramter(s) in array
+        {
+          Serial.readBytes( (char*)&isignal , 4);
+          uint32_t signallocation;
+          Serial.readBytes( (char*)&signallocation , 4);
+          uint32_t signallength;
+          Serial.readBytes( (char*)&signallength , 4);
+          uint8_t memberlength = signaltomemberlength( isignal );
+          Serial.readBytes( (char*)trace.all_pointers[isignal] + (signallocation * memberlength) , signallength );
+          break;
+        }
+      case 'S': //Set parameter
+        {
+          Serial.readBytes( (char*)&isignal , 4);
+          Serial.readBytes( (char*)trace.all_pointers[isignal] , trace.all_lengths[isignal]);
+          break;
+        }
+      case 't':
+        {
+          Serial.readBytes( (char*)&isignal , 4);
+          uint8_t traceposition = Serial.read();
+          if (isignal < sizeof( trace.all_types )) {
+            trace.pointers[traceposition] = trace.all_pointers[isignal] ;
+            trace.lengths[traceposition] = trace.all_lengths[isignal];
+          }
+          else {
+            trace.pointers[traceposition] = NULL;
+            trace.lengths[traceposition] = 0;
+          }
+          break;
+        }
+      case 'T':
+        {
+          for (uint32_t i = 0; i < sizeof( trace.all_types ) ; i ++) {
+            if ( trace.names[i] == NULL) {
+              break;
+            }
+            Serial.println( trace.names[i] );
+            Serial.println( trace.all_types[i] );
+            Serial.println( trace.all_lengths[i] / signaltomemberlength(i) );
+          }
+          break;
+        }
+  }
+}
+
+  
+  
+  
+  
+  
+  if (Serial.available() > 4) {
+    char settingByte = Serial.read();
+    for ( int i = 0; i < 4; i++) {
+      ser_in.bin[i] = Serial.read();
+    }
+    if (settingByte == 's') {
+      ss_gain = ser_in.fp;
+      ss_f = ss_fstart;
+      ss_phase = 0;
+      ss_tstart = (curtime + Ts) / 1e6; //timePrev gebruik ik niet meer?!!
+    }
+    if (settingByte == 'o') {
+      digitalWrite( engate , 1);
+      SPI_init();
+      OutputOn = true;
+      offsetVelTot = 0;
+      //      encoderPos1 = 0;
+      //      encoderPos2 = 0;
+      // Reset positions to zero, as the floating point number is most accurate here
+      SPprofile->REFqmem = 0;
+      if (haptic == 1) {
+        rmechoffset = ymech1 + ymech2;
+      }
+      else {
+        rmechoffset = ymech1;
+      }
+      rmechoffset2 = ymech2;
+
+      integrator->setState(0);
+      vq_int_state = 0;
+      vd_int_state = 0;
+
+      integrator2->setState(0);
+      integrator_Id2->setState(0);
+      integrator_Iq2->setState(0);
+
+      firsterror = 0;
+    }
+
+    if (settingByte == '1') {
+      SPprofile->t1 = ser_in.fp;
+    }
+    if (settingByte == '2') {
+      SPprofile->t2 = ser_in.fp;
+    }
+    if (settingByte == '3') {
+      SPprofile->t3 = ser_in.fp;
+    }
+    if (settingByte == '4') {
+      SPprofile->p = ser_in.fp;
+    }
+    if (settingByte == '5') {
+      SPprofile->v_max = ser_in.fp;
+    }
+    if (settingByte == '6') {
+      SPprofile->a_max = ser_in.fp;
+    }
+    if (settingByte == '7') {
+      SPprofile->j_max = ser_in.fp;
+      SPprofile->init();
+    }
+    if (settingByte == '8') {
+      int adc_shift = ser_in.sint;
+      FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );//  Clear Load Okay LDOK(SM) -> no reload of PWM settings
+      FLEXPWM2_SM0VAL4 = 0 + adc_shift; // adc trigger
+      FLEXPWM2_SM0VAL5 = FLEXPWM2_SM0VAL1 + adc_shift; // adc trigger
+      FLEXPWM2_SM2VAL4 = FLEXPWM2_SM0VAL4; // adc trigger output
+      FLEXPWM2_SM2VAL5 = FLEXPWM2_SM0VAL5; // adc trigger output
+      FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 );// Load Okay LDOK(SM) -> reload setting again
+    }
+
+    if (settingByte == 't') {
+      tracearray[Serial.read()] = ser_in.uint;
+    }
+    if (settingByte == 'T') {
+      printSignals( ser_in.uint );
+    }
+    if (settingByte == 'S') {
+      for ( int i = 0; i < 4; i++) {
+        bf.bin[i] = Serial.read();
+      }
+      setpar( ser_in.uint , bf );
+    }
+
+    if (settingByte == 'C') {
+      integrator = new Integrator( fInt , 2 * f_pwm);
+      leadlag       = new LeadLag( fBW , alpha1 , alpha2 , 2 * f_pwm);
+      lowpass        = new Biquad( bq_type_lowpass , fLP , 0.7, 2 * f_pwm);
+      integrator2 = new Integrator( fInt2 , 2 * f_pwm);
+      leadlag2       = new LeadLag( fBW2 , alpha1_2 , alpha2_2 , 2 * f_pwm);
+      lowpass2        = new Biquad( bq_type_lowpass , fLP2 , 0.7 , 2 * f_pwm);
+    }
+  }
+}
+
+void utils_step_towards(float * value, float goal, float step) {
+  if (*value < goal) {
+    if ((*value + step) < goal) {
+      *value += step;
+    } else {
+      *value = goal;
+    }
+  } else if (*value > goal) {
+    if ((*value - step) > goal) {
+      *value -= step;
+    } else {
+      *value = goal;
+    }
+  }
+}

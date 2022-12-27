@@ -1,5 +1,4 @@
 #include <stdbool.h>
-#include <stdint.h>
 
 #define f_pwm 30e3
 
@@ -14,11 +13,10 @@
 #define PRREG(x) Serial.print(#x" 0x"); Serial.println(x,HEX)
 #define SSpin 35
 
-#define one_by_sqrt3    0.57735026919
-#define two_by_sqrt3    1.15470053838
-#define sqrt_two_three  0.81649658092
-#define sqrt3_by_2      0.86602540378
-
+#define one_by_sqrt     0.57735026919;
+#define two_by_sqrt3    1.15470053838;
+#define sqrt_two_three  0.81649658092;
+#define sqrt3_by_2      0.86602540378;
 
 typedef struct setpoint_t {
   bool SPdir;
@@ -52,9 +50,6 @@ typedef struct hfi_t {
   unsigned int hfi_method;
   float hfi_ffw;
   float hfi_maxvel;
-  float diq_compensation[361];
-  bool diq_compensation_on;
-  float compensation;
 } hfi_t;
 
 typedef struct mot_conf_t {
@@ -83,9 +78,7 @@ typedef struct mot_conf_t {
   float Ki_id; //Series PI controller. Ki = w0. Choose this to be R / Ld.
   float max_edeltarad;
   float N_pp; //Number of pole pairs
-  unsigned int clipMethod;
-  float maxerror;
-  
+
   //Motor parameters
   float Kt_Nm_Apeak;
   float Ld; //[Henry] Ld induction: phase-zero
@@ -126,6 +119,7 @@ typedef struct mot_state_t {
   float muziek_gain_V;
   float distval;
   float distoff;
+  unsigned int curloop;
   unsigned int downsample;
   int REFstatus;
   int incomingByte;
@@ -135,9 +129,9 @@ typedef struct mot_state_t {
   unsigned int IndexFound2;
   bool OutputOn;
   float ss_phase;
-  uint16_t lfsr;
+  unsigned int lfsr;
   float ss_out;
-  uint16_t noisebit; /* Must be 16bit to allow bit<<15 later in the code */
+  unsigned int noisebit;
   float ss_f;
   float ss_tstart;
   unsigned int downsamplePRBS;
@@ -166,6 +160,7 @@ typedef struct mot_state_t {
   float thetaPark_enc;
   float thetaPark_obs;
   float thetaPark_obs_prev;
+  float thetaPark_vesc;
   float co;
   float si;
   float D;
@@ -232,8 +227,6 @@ typedef struct globalstate_t {
   unsigned int curtime;
   bool is_v7;
   unsigned int firsterror;
-  unsigned int curloop;
-  unsigned int downsample;
 } globalstate_t;
 
 typedef struct conf_t {
@@ -242,7 +235,6 @@ typedef struct conf_t {
   unsigned int useIlowpass;
   float Busadc2Vbus;
   float V_Bus;
-  unsigned int Ndownsample;
 } conf_t;
 
 typedef struct motor_total_t {

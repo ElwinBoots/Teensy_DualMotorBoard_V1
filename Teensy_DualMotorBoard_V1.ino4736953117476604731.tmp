@@ -55,8 +55,7 @@ void initparams( motor_total_t* m ) {
   m->conf.T = m->conf.Ts / 1e6;
   m->conf.Busadc2Vbus = 1 / 4095.0 * 3.3 * ((68.3 + 5.05) / 5.05); //5.1 changed to 5.05 to improve accuracy. May differ board to board.
   m->conf.V_Bus = 24; //Bus Voltage
-  m->conf.Ndownsample = 1;
-  
+
   m->state1.OutputOn = true;
 
   initmotor( &m->conf1 , &m->state1);
@@ -71,8 +70,6 @@ void initmotor( mot_conf_t* m , mot_state_t* state ) {
   m->enc2rad = 2 * M_PI / m->enccountperrev;
   m->I_max = 15; //Max current (peak of the sine wave in a phase)
   m->max_edeltarad = 0.25f * M_PI;
-
-  m->maxerror = 0.5;
 
   //Motor parameters
   m->N_pp = 4; //Number of pole pairs
@@ -1194,23 +1191,15 @@ void communicationProcess() {
     }
     delay(1);
   }
-
   if ( trace.n_to_send > 0) {
-    if ( motor.state.downsample < 1) {
-      motor.state.downsample = motor.conf.Ndownsample;
-      for ( uint32_t i = 0; i < sizeof(trace.pointers) ; i++) {
-        if ( trace.pointers[i] == NULL) {
-          break;
-        }
-        Serial.write( trace.pointers[i] , trace.lengths[i]);
+    for ( uint32_t i = 0; i < sizeof(trace.pointers) ; i++) {
+      if ( trace.pointers[i] == NULL) {
+        break;
       }
-      if( trace.n_to_send < 1e6){
-        trace.n_to_send--;
-      }
+      Serial.write( trace.pointers[i] , trace.lengths[i]);
     }
-    motor.state.downsample--;
+    trace.n_to_send--;
   }
-
 }
 
 void xbar_connect(unsigned int input, unsigned int output)
