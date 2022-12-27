@@ -56,7 +56,7 @@ void initparams( motor_total_t* m ) {
   m->conf.Busadc2Vbus = 1 / 4095.0 * 3.3 * ((68.3 + 5.05) / 5.05); //5.1 changed to 5.05 to improve accuracy. May differ board to board.
   m->conf.V_Bus = 24; //Bus Voltage
   m->conf.Ndownsample = 1;
-  
+
   m->state1.OutputOn = true;
 
   initmotor( &m->conf1 , &m->state1);
@@ -95,11 +95,15 @@ void setup() {
   initparams( &motor );
 
   Serial.begin(1);
-  pinMode( engate , OUTPUT);
+  pinMode( ENGATE , OUTPUT);
+  pinMode( ENGATE2 , OUTPUT);
 
-  digitalWrite( engate , 1); // To be updated!
+  digitalWrite( ENGATE , 1); // To be updated!
+  digitalWrite( ENGATE2 , 1); // To be updated!
 
-  SPI_init();  // Disable this for DRV8302
+  SPI_init( SSPIN );  // Only for DRV8301. Disable this for DRV8302
+  //  SPI_init( SSPIN2 );  // Only for DRV8301. Disable this for DRV8302
+  DRV8302_init( SSPIN2 , 13 ); // Note: pin 13 is also the SCLK pin for communication with DRV8301 and the LED.
   xbar_init();
   adc_init();
   adc_etc_init();
@@ -115,7 +119,7 @@ void setup() {
   motor.state.setupready = 1;
 }
 
-void SPI_init() {
+void SPI_init( int SSpin ) {
   SPI.begin();
   SPI.beginTransaction(SPISettings( 10e6 , MSBFIRST, SPI_MODE1)); //DRV8301 specsheet: 100 ns -> 10 Mhz. Set correct mode (fallingedgeof the clock).
   pinMode(SSpin, OUTPUT);
@@ -136,6 +140,13 @@ void SPI_init() {
   SPI.endTransaction();
 }
 
+void DRV8302_init( int M_PWM_pin , int OC_ADJ_pin ) {
+  pinMode( M_PWM_pin , OUTPUT);
+  digitalWrite( M_PWM_pin , 1);
+  pinMode( OC_ADJ_pin , OUTPUT);
+  digitalWrite( OC_ADJ_pin , 1);
+}
+
 void xbar_init() {
   CCM_CCGR2 |= CCM_CCGR2_XBAR1(CCM_CCGR_ON);   //turn clock on for xbara1
   xbar_connect(XBARA1_IN_FLEXPWM2_PWM1_OUT_TRIG0, XBARA1_OUT_ADC_ETC_TRIG00); //FlexPWM to adc_etc
@@ -152,12 +163,25 @@ void adc_init() {
                | ADC_CFG_ADTRG;       // Hardware trigger selected
   ADC2_CFG = ADC1_CFG;
 
-  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_02 &= ~ (1 << 12) ; // disable keeper pin 14, as per manual
-  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_03 &= ~ (1 << 12) ; // disable keeper pin 15, as per manual
-  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_07 &= ~ (1 << 12) ; // disable keeper pin 16, as per manual
-  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_06 &= ~ (1 << 12) ; // disable keeper pin 17, as per manual
-  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_01 &= ~ (1 << 12) ; // disable keeper pin 18, as per manual
-  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_00 &= ~ (1 << 12) ; // disable keeper pin 19, as per manual
+//  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_02 &= ~ (1 << 12) ; // disable keeper pin 14, as per manual
+//  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_03 &= ~ (1 << 12) ; // disable keeper pin 15, as per manual
+//  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_07 &= ~ (1 << 12) ; // disable keeper pin 16, as per manual
+//  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_06 &= ~ (1 << 12) ; // disable keeper pin 17, as per manual
+//  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_01 &= ~ (1 << 12) ; // disable keeper pin 18, as per manual
+//  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_00 &= ~ (1 << 12) ; // disable keeper pin 19, as per manual
+
+  CORE_PIN14_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN15_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN16_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN17_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN18_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN19_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN20_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN21_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  
+  CORE_PIN24_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN25_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN26_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
 
   //Calibration of ADC
   ADC1_GC |= ADC_GC_CAL;   // begin cal ADC1
@@ -180,20 +204,65 @@ void adc_etc_init() {
   ADC_ETC_CTRL |= 1;  // TRIG_ENABLE
 
   /* ADC channel, pin numbers
-    7,  // 14/A0  AD_B1_02
-    8,  // 15/A1  AD_B1_03
-    12, // 16/A2  AD_B1_07
-    11, // 17/A3  AD_B1_06
-    6,  // 18/A4  AD_B1_01
-    5,  // 19/A5  AD_B1_00
+   
+   Note: 0 to 13 is same as 14 to 27. Do not try to use these for analog in!
+        7,      // 0/A0  AD_B1_02   ENC1_A             
+        8,      // 1/A1  AD_B1_03   ENC1_B
+        12,     // 2/A2  AD_B1_07   M1 out A INH-A
+        11,     // 3/A3  AD_B1_06   ENC1_I
+        6,      // 4/A4  AD_B1_01   M2 out C INH-C2
+        5,      // 5/A5  AD_B1_00   M2 out B INH-B2
+        15,     // 6/A6  AD_B1_10   M2 out A INH-A2
+        0,      // 7/A7  AD_B1_11   M2 Ia              --> Doesn't work       
+        13,     // 8/A8  AD_B1_08   M2 Ib              --> Doesn't work                       
+        14,     // 9/A9  AD_B1_09   M2 Ic              --> Doesn't work       
+        255,  // 10/A10 AD_B0_12   -
+        255,  // 11/A11 AD_B0_13    SDI (SPI)
+        3,      // 12/A12 AD_B1_14  SDO (SPI)
+        4,      // 13/A13 AD_B1_15  SCLK (SPI)
 
-    12, // 16/A2  AD_B1_07  M1 Ia
-    8,  // 15/A1  AD_B1_03  M1 Ib
+        7,      // 14/A0  AD_B1_02  M1 Ic
+        8,      // 15/A1  AD_B1_03  M1 Ib
+        12,     // 16/A2  AD_B1_07  M1 Ia
+        11,     // 17/A3  AD_B1_06  M1 Vbus
+        6,      // 18/A4  AD_B1_01  M1 EMF-A
+        5,      // 19/A5  AD_B1_00  M1 EMF-B
+        15,     // 20/A6  AD_B1_10  M1 EMF-C
+        0,      // 21/A7  AD_B1_11  M2 Vbus
+        13,     // 22/A8  AD_B1_08  M1 out C INH-C
+        14,     // 23/A9  AD_B1_09  M1 out B INH-B
+        255,    // 24/A10 AD_B0_12  M2 EMF-A  --> Exchanged for M2 Ia 
+        255,    // 25/A11 AD_B0_13  M2 EMF-B
+        3,      // 26/A12 AD_B1_14  M2 EMF-C  --> Exchanged for M2 Ib 
+        4,      // 27/A13 AD_B1_15  M2 nOCTW
+        255,    // 28               M2 PWRGD
+        255,    // 29
+        255,    // 30               ENC2_A
+        255,    // 31               ENC2_B
+        255,    // 32
+        255,    // 33               ENC2_I
+        255,    // 34               M1 EN-GATE
+        255,    // 35               M1 nSCS
+        255,    // 36               M1 nFAULT
+        255,    // 37               M1 nOCTW
+        1,      // 38/A14 AD_B1_12  M1 PWRGD
+        2,      // 39/A15 AD_B1_13  M2 EN-GATE
+        9,      // 40/A16 AD_B1_04  M2 nSCS
+        10,     // 41/A17 AD_B1_05  M2 nFAULT
 
-    6,  // 18/A4  AD_B1_01  M1 Va
-    5,  // 19/A5  AD_B1_00  M1 Vb
+    Actual chain:
+        12,     // 16/A2  AD_B1_07  M1 Ia
+        8,      // 15/A1  AD_B1_03  M1 Ib
 
-    11, // 17/A3  AD_B1_06 Vbus
+        1,      // 24/A10 AD_B0_12  M2 EMF-A  --> Exchanged for M2 Ia  // Analog channel 1 input 1 NOTE: only on ADC1 !
+        3,      // 26/A12 AD_B1_14  M2 EMF-C  --> Exchanged for M2 Ib  // Analog channel 2 input 3 NOTE: only on ADC2
+
+        11,     // 17/A3  AD_B1_06  M1 Vbus
+        0,      // 21/A7  AD_B1_11  M2 Vbus
+
+  Removed due to not working (wrong pin, these do not have ADC connection):
+        0,      // 7/A7  AD_B1_11   M2 Ia
+        13,     // 8/A8  AD_B1_08   M2 Ib
 
   */
 
@@ -203,7 +272,7 @@ void adc_etc_init() {
     ADC_ETC_TRIG_CHAIN_IE1(0) |
     ADC_ETC_TRIG_CHAIN_B2B1 |
     ADC_ETC_TRIG_CHAIN_HWTS1(1) |
-    ADC_ETC_TRIG_CHAIN_CSEL1(6) |
+    ADC_ETC_TRIG_CHAIN_CSEL1(1) |
     ADC_ETC_TRIG_CHAIN_IE0(0) |
     ADC_ETC_TRIG_CHAIN_B2B0 |
     ADC_ETC_TRIG_CHAIN_HWTS0(1) |
@@ -220,7 +289,7 @@ void adc_etc_init() {
     ADC_ETC_TRIG_CHAIN_IE1(0) |
     ADC_ETC_TRIG_CHAIN_B2B1 |
     ADC_ETC_TRIG_CHAIN_HWTS1(1) |
-    ADC_ETC_TRIG_CHAIN_CSEL1(5) |
+    ADC_ETC_TRIG_CHAIN_CSEL1(3) |
     ADC_ETC_TRIG_CHAIN_IE0(0) |
     ADC_ETC_TRIG_CHAIN_B2B0 |
     ADC_ETC_TRIG_CHAIN_HWTS0(1) |
@@ -230,7 +299,7 @@ void adc_etc_init() {
     ADC_ETC_TRIG_CHAIN_IE0(2) |
     ADC_ETC_TRIG_CHAIN_B2B0 |
     ADC_ETC_TRIG_CHAIN_HWTS0(1) |
-    ADC_ETC_TRIG_CHAIN_CSEL0(5);
+    ADC_ETC_TRIG_CHAIN_CSEL0(0);
 
   attachInterruptVector(IRQ_ADC_ETC0, adcetc0_isr);
   NVIC_ENABLE_IRQ(IRQ_ADC_ETC0);
@@ -375,6 +444,8 @@ void adcetc1_isr() {
   motor.state.curtime = micros();
   motor.state.is_v7 = (FLEXPWM2_SM0STS & FLEXPWM_SMSTS_CMPF(2));  //is_v7 = True when in v7
   FLEXPWM2_SM0STS |= FLEXPWM_SMSTS_CMPF(2); //Reset flag
+
+  //ADC1: 
   motor.state.sens1 = (ADC_ETC_TRIG0_RESULT_1_0 & 4095) * 0.0008058608; // 4095.0 * 3.3;
   motor.state.sens1_lp = lowpassIsens1->process( motor.state.sens1 );
   motor.state.sens3 = ((ADC_ETC_TRIG0_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
@@ -382,23 +453,27 @@ void adcetc1_isr() {
   motor.state.sensBus = (ADC_ETC_TRIG0_RESULT_3_2 & 4095) * motor.conf.Busadc2Vbus;   // 4095.0 * 3.3 * ((68.3+5.05)/5.05);
   motor.state.sensBus_lp = lowpass_sensbus->process( motor.state.sensBus );
 
+  //ADC2:
+  motor.state.sens2 = (ADC_ETC_TRIG4_RESULT_1_0 & 4095) * 0.0008058608; // 4095.0 * 3.3;
+  motor.state.sens2_lp = lowpassIsens2->process( motor.state.sens2 );
+  motor.state.sens4 = ((ADC_ETC_TRIG4_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
+  motor.state.sens4_lp = lowpassIsens4->process( motor.state.sens4 );
+  motor.state.sensBus2 = (ADC_ETC_TRIG4_RESULT_3_2 & 4095) * motor.conf.Busadc2Vbus;   // 4095.0 * 3.3 * ((68.3+5.05)/5.05);
+
   if ( motor.state.sensBus > motor.conf.V_Bus + 1 ) {
     //    digitalWrite( chopperpin , HIGH);
   }
   else {
     //    digitalWrite( chopperpin , LOW);
   }
-  if ( motor.state.sensBus > 45 ) {
+  if ( motor.state.sensBus > 45 or motor.state.sensBus2 > 45 ) {
     motor.state1.OutputOn = false;
     motor.state2.OutputOn = false;
     if (motor.state.firsterror == 0) {
       motor.state.firsterror = 41;
     }
   }
-  motor.state.sens2 = (ADC_ETC_TRIG4_RESULT_1_0 & 4095) * 0.0008058608; // 4095.0 * 3.3;
-  motor.state.sens2_lp = lowpassIsens2->process( motor.state.sens2 );
-  motor.state.sens4 = ((ADC_ETC_TRIG4_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
-  motor.state.sens4_lp = lowpassIsens4->process( motor.state.sens4 );
+    
   if (motor.state.setupready == 1) {
     if (motor.state.n_senscalib < 1e4) {
       motor.state.n_senscalib++;
@@ -483,7 +558,7 @@ void GenSetpoint() {
   motor.state1.rmech += motor.state1.offsetVelTot ;
 
   motor.state2.rmech = -motor.state1.rmech;
-  motor.state1.rmech  += motor.state1.rmechoffset;
+  motor.state1.rmech += motor.state1.rmechoffset;
   motor.state2.rmech += motor.state2.rmechoffset;
 
   motor.state1.acc = SPprofile->aref;
@@ -492,6 +567,7 @@ void GenSetpoint() {
 
   motor.state2.acc = -motor.state1.acc;
   motor.state2.vel = -motor.state1.vel;
+  motor.state2.we  = motor.state2.vel * motor.conf2.N_pp;  //Electrical speed [rad/s], based on setpoint
 
   //When no setpoint is running, always convert reference to nearest encoder count to avoid noise
   if (SPprofile->REFstatus == 0 && motor.state1.offsetVel_lp == 0) {
@@ -508,6 +584,12 @@ void readENC() {
   motor.state1.encoderPos2 = Encoder2.read();
   motor.state1.IndexFound1 = Encoder1.indexfound();
   motor.state1.IndexFound2 = Encoder2.indexfound();
+
+  //Hack
+//  motor.state1.encoderPos2 = Encoder1.read();
+//  motor.state1.encoderPos1 = Encoder2.read();
+//  motor.state1.IndexFound2 = Encoder1.indexfound();
+//  motor.state1.IndexFound1 = Encoder2.indexfound();
 }
 
 void Control() {
@@ -612,6 +694,11 @@ void Transforms()
   }
   motor.state1.ic = -motor.state1.ia - motor.state1.ib;
   motor.state2.ic = -motor.state2.ia - motor.state2.ib;
+
+  //HACK 
+//  motor.state1.ia = motor.state2.ia;
+//  motor.state1.ib = motor.state2.ib;
+//  motor.state1.ic = motor.state2.ic;
 
   // For Park and Clarke see https://www.cypress.com/file/222111/download
   // Power-variant Clarke transform. Asuming ia+ib+ic=0:
@@ -1135,43 +1222,65 @@ void changePWM() {
   //    }
   //  }
 
-  //  //Motor 1, flexpwm2:
-  //  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
-  //  if (motor.state1.OutputOn == false) {
-  //    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 / 2;
-  //    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 / 2;
-  //    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 / 2;
-  //  }
-  //  else {
-  //    // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
-  //    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 * motor.state1.tA;
-  //    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 * motor.state1.tB;
-  //    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 * motor.state1.tC;
-  //  }
-  //  FLEXPWM2_SM0VAL2 = -FLEXPWM2_SM0VAL3;
-  //  FLEXPWM2_SM1VAL2 = -FLEXPWM2_SM1VAL3;
-  //  FLEXPWM2_SM2VAL2 = -FLEXPWM2_SM2VAL3;
-  //  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
 
-  //Motor 1, flexpwm4:
-  FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
-  if (motor.state1.OutputOn == false) {
-    digitalWrite( engate , 0);
-    FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 / 2;
-    FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 / 2;
-    FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 / 2;
-  }
-  else {
-    // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
-    digitalWrite( engate , 1);
-    FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 * motor.state1.tB;
-    FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 * motor.state1.tC;
-    FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 * motor.state1.tA;
-  }
-  FLEXPWM4_SM0VAL2 = -FLEXPWM4_SM0VAL3;
-  FLEXPWM4_SM1VAL2 = -FLEXPWM4_SM1VAL3;
-  FLEXPWM4_SM2VAL2 = -FLEXPWM4_SM2VAL3;
-  FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
+
+  //  //Motor 1, flexpwm4:
+    FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
+    if (motor.state1.OutputOn == false) {
+      digitalWrite( ENGATE , 0);
+      digitalWrite( ENGATE2 , 0);
+      FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 / 2;
+      FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 / 2;
+      FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 / 2;
+    }
+    else {
+      // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
+      digitalWrite( ENGATE , 1);
+      digitalWrite( ENGATE2 , 1);
+      FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 * motor.state1.tB;
+      FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 * motor.state1.tC;
+      FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 * motor.state1.tA;
+    }
+    FLEXPWM4_SM0VAL2 = -FLEXPWM4_SM0VAL3;
+    FLEXPWM4_SM1VAL2 = -FLEXPWM4_SM1VAL3;
+    FLEXPWM4_SM2VAL2 = -FLEXPWM4_SM2VAL3;
+    FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
+
+
+  //Motor 2, flexpwm2:
+//  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
+//  if (motor.state1.OutputOn == false) {
+//    digitalWrite( ENGATE , 0);
+//    digitalWrite( ENGATE2 , 0);
+//    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 / 2;
+//    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 / 2;
+//    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 / 2;
+//  }
+//  else {
+//    // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
+//    digitalWrite( ENGATE , 1);
+//    digitalWrite( ENGATE2 , 1);
+//    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 * motor.state1.tC;
+//    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 * motor.state1.tB;
+//    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 * motor.state1.tA;
+//  }
+//  FLEXPWM2_SM0VAL2 = -FLEXPWM2_SM0VAL3;
+//  FLEXPWM2_SM1VAL2 = -FLEXPWM2_SM1VAL3;
+//  FLEXPWM2_SM2VAL2 = -FLEXPWM2_SM2VAL3;
+//  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
+
+  //  M1:
+  //  FLEXPWM4 22 23 2
+  //  {1, M(4, 0), 1, 1},  // FlexPWM4_0_A  22  // AD_B1_08    --> M1 Phase B
+  //  {1, M(4, 1), 1, 1},  // FlexPWM4_1_A  23  // AD_B1_09    --> M1 Phase C
+  //  {1, M(4, 2), 1, 1},  // FlexPWM4_2_A   2  // EMC_04      --> M1 Phase A
+  //
+  //  M2:
+  //  FLEXPWM2 4 5 6
+  //  {1, M(2, 0), 1, 1},  // FlexPWM2_0_A   4  // EMC_06      --> M2 Phase C
+  //  {1, M(2, 1), 1, 1},  // FlexPWM2_1_A   5  // EMC_08      --> M2 Phase B
+  //  {1, M(2, 2), 1, 2},  // FlexPWM2_2_A   6  // B0_10       --> M2 Phase A
+
 }
 
 
@@ -1204,7 +1313,7 @@ void communicationProcess() {
         }
         Serial.write( trace.pointers[i] , trace.lengths[i]);
       }
-      if( trace.n_to_send < 1e6){
+      if ( trace.n_to_send < 1e6) {
         trace.n_to_send--;
       }
     }
@@ -1345,7 +1454,7 @@ void processSerialIn() {
     motor.state1.ss_tstart = (motor.state.curtime + Ts) / 1e6; //timePrev gebruik ik niet meer?!!
   }
   if (settingByte == 'o') {
-    digitalWrite( engate , 1);
+    digitalWrite( ENGATE , 1);
     SPI_init();
     motor.state1.OutputOn = true;
     motor.state1.offsetVelTot = 0;

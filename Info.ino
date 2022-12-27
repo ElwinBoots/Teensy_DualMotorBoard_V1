@@ -56,16 +56,16 @@
   For two motors:
 
   M1:
-  FLEXPWM2 4 5 6
-  {1, M(2, 0), 1, 1},  // FlexPWM2_0_A   4  // EMC_06
-  {1, M(2, 1), 1, 1},  // FlexPWM2_1_A   5  // EMC_08
-  {1, M(2, 2), 1, 2},  // FlexPWM2_2_A   6  // B0_10
+  FLEXPWM4 22 23 2
+  {1, M(4, 0), 1, 1},  // FlexPWM4_0_A  22  // AD_B1_08    --> M1 Phase B
+  {1, M(4, 1), 1, 1},  // FlexPWM4_1_A  23  // AD_B1_09    --> M1 Phase C 
+  {1, M(4, 2), 1, 1},  // FlexPWM4_2_A   2  // EMC_04      --> M1 Phase A
 
   M2:
-  FLEXPWM4 22 23 2
-  {1, M(4, 0), 1, 1},  // FlexPWM4_0_A  22  // AD_B1_08
-  {1, M(4, 1), 1, 1},  // FlexPWM4_1_A  23  // AD_B1_09
-  {1, M(4, 2), 1, 1},  // FlexPWM4_2_A   2  // EMC_04
+  FLEXPWM2 4 5 6
+  {1, M(2, 0), 1, 1},  // FlexPWM2_0_A   4  // EMC_06      --> M2 Phase C
+  {1, M(2, 1), 1, 1},  // FlexPWM2_1_A   5  // EMC_08      --> M2 Phase B
+  {1, M(2, 2), 1, 2},  // FlexPWM2_2_A   6  // B0_10       --> M2 Phase A
 
   Encoders:
   E1:

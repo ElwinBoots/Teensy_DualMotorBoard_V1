@@ -490,7 +490,7 @@ setpar('motor.state1.Iq_offset_SP', 0)
 
 
 # %%
-setpar('motor.state1.muziek_gain', 8)
+setpar('motor.state1.muziek_gain', 2)
 
 setpar('motor.state1.muziek_gain', 0)
 
@@ -507,6 +507,19 @@ signals = setTrace(['motor.state1.thetaPark',  'motor.hfi1.delta_id' , 'motor.hf
 
 df = trace(2)
 df.plot()
+
+# %%
+signals = setTrace([
+                    'motor.state1.ia','motor.state1.ib' , 
+                    'motor.state2.ia','motor.state2.ib' ])
+                    # 'motor.state.sens1' ,'motor.state.sens2' ,'motor.state.sens3' ,'motor.state.sens4'])
+                   # 'motor.state1.Id_meas','motor.state1.Iq_meas',
+                   # 'motor.state1.Vd','motor.state1.Vq','motor.state1.I_bus','motor.state.sensBus'])
+
+df = trace(1)
+df.plot()
+
+
 
 # %%
 # signals = setTrace( ['motor1.curtime',
@@ -910,6 +923,7 @@ setpar( 'motor.conf1.alpha2' , 4)
 setpar( 'motor.conf1.fInt' , fBW / 6)
 setpar( 'motor.conf1.fLP' ,  fBW * 8)
 
+
 ser.write(b'C')
 
 setpar( 'motor.conf1.Kp' , 23.3)
@@ -921,7 +935,7 @@ setpar( 'motor.hfi1.diq_compensation_on' , 0)
 prepSP( 360/360*2*pi , 20*pi , 1000 ,100000)
 setpar('motor.setpoint.SPdir' , 1)
 
-setpar('motor.setpoint.spNgo' , 1)
+setpar('motor.setpoint.spNgo' , 2)
 
 
 #%%  

@@ -10,9 +10,12 @@
 
 #define chopperpin 33 //Digital output for chopper resistor
 #define debugpin 32
-#define engate 34
+#define ENGATE  34
+#define ENGATE2 39
+
 #define PRREG(x) Serial.print(#x" 0x"); Serial.println(x,HEX)
-#define SSpin 35
+#define SSPIN 35
+#define SSPIN2 40 
 
 #define one_by_sqrt3    0.57735026919
 #define two_by_sqrt3    1.15470053838
@@ -227,6 +230,7 @@ typedef struct globalstate_t {
   float sensCalVal3;
   float sensCalVal4;
   float sensBus;
+  float sensBus2;
   int n_senscalib;
   bool setupready;
   unsigned int curtime;
