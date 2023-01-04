@@ -703,7 +703,6 @@ void Transforms()
   // For Park and Clarke see https://www.cypress.com/file/222111/download
   // Power-variant Clarke transform. Asuming ia+ib+ic=0:
   motor.state1.Ialpha = motor.state1.ia;
-  motor.state1.Ibeta = 0.1 * motor.state1.ia + 0.1 * motor.state1.ib;
   motor.state1.Ibeta = one_by_sqrt3 * motor.state1.ia + two_by_sqrt3 * motor.state1.ib;
 
   //  motor.state2.Ialpha = motor.state2.ia;
