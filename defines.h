@@ -1,27 +1,24 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define f_pwm 30e3
-
 #define NORM2_f(x,y)    (sqrtf(sq(x) + sq(y)))
 #define UTILS_IS_INF(x)    ((x) == (1.0 / 0.0) || (x) == (-1.0 / 0.0))
 #define UTILS_IS_NAN(x)   ((x) != (x))
 #define UTILS_NAN_ZERO(x) (x = UTILS_IS_NAN(x) ? 0.0 : x)
+#define PRREG(x) Serial.print(#x" 0x"); Serial.println(x,HEX)
 
-#define chopperpin 33 //Digital output for chopper resistor
-#define debugpin 32
+#define ONE_BY_SQRT3    0.57735026919
+#define TWO_BY_SQRT3    1.15470053838
+#define SQRT_TWO_THREE  0.81649658092
+#define SQRT3_by_2      0.86602540378
+
+#define F_PWM 60e3
+#define CHOPPERPIN 33 //Digital output for chopper resistor
+#define DEBUGPIN 32
 #define ENGATE  34
 #define ENGATE2 39
-
-#define PRREG(x) Serial.print(#x" 0x"); Serial.println(x,HEX)
 #define SSPIN 35
 #define SSPIN2 40 
-
-#define one_by_sqrt3    0.57735026919
-#define two_by_sqrt3    1.15470053838
-#define sqrt_two_three  0.81649658092
-#define sqrt3_by_2      0.86602540378
-
 
 typedef struct setpoint_t {
   bool SPdir;

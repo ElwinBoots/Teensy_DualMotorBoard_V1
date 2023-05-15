@@ -281,13 +281,13 @@ setpar('motor.conf1.clipMethod', 0)
 setpar('motor.conf1.clipMethod', 1)
 
 # %%
-setpar('motor.conf1.ridethewave', 1)
-time.sleep(1)
+# setpar('motor.conf1.ridethewave', 1)
+# time.sleep(1)
 
 setpar('motor.conf1.commutationoffset', 0)
 
 
-setpar('motor.state1.Valpha_offset', 1)
+setpar('motor.state1.Valpha_offset', 0.5)
 time.sleep(0.5)
 Valpha1 = getsig('motor.state1.Valpha_offset')
 Ialpha1 = getsig('motor.state1.Ialpha')
@@ -295,7 +295,7 @@ Ibeta1 = getsig('motor.state1.Ibeta')
 Ia1 = getsig('motor.state1.ia')
 bus1 = getsig('motor.state.sensBus_lp')
 
-setpar('motor.state1.Valpha_offset', 2)
+setpar('motor.state1.Valpha_offset', 1)
 
 time.sleep(0.5)
 Valpha2 = getsig('motor.state1.Valpha_offset')
@@ -387,7 +387,7 @@ setpar('motor.conf1.Ki_iq', R/Lq)  # Current loop Ki
 setpar('motor.conf1.Kp_id', Ld * f_bw * 2 * pi)  # Current loop Kp
 setpar('motor.conf1.Ki_id', R/Ld)  # Current loop Ki
 
-setpar('motor.conf1.I_max', 15)
+setpar('motor.conf1.I_max', 20)
 setpar('motor.conf1.maxDutyCycle', 0.99)
 
 
@@ -412,14 +412,38 @@ setpar('motor.conf1.Ki_id', R/Ld)  # Current loop Ki
 # setpar('motor.conf1.I_max' , 20)
 # setpar('motor.conf1.maxDutyCycle' , 0.99)
 
+# %% Iflight XING-E Pro 2207 1800KV
+Ld = 7e-6
+Lq = 7e-6
+R = 0.06
+kv = 1800
+N_pp = 7
+# fluxlinkage = 60 / (np.sqrt(3) * 2 * np.pi * kv * N_pp) 
+fluxlinkage = 0.00046
+setpar('motor.conf1.Lambda_m', fluxlinkage)
+setpar('motor.conf1.N_pp',  N_pp)
+setpar('motor.conf1.Lq', Lq)
+setpar('motor.conf1.Ld', Ld)
+setpar('motor.state1.R', R)
+setpar('motor.conf.useIlowpass', 0)
 
+f_bw = 2e3
+
+setpar('motor.conf1.Kp_iq', Lq * f_bw * 2 * pi)  # Current loop Kp
+setpar('motor.conf1.Ki_iq', R/Lq)  # Current loop Ki
+setpar('motor.conf1.Kp_id', Ld * f_bw * 2 * pi)  # Current loop Kp
+setpar('motor.conf1.Ki_id', R/Ld)  # Current loop Ki
+
+setpar('motor.conf1.I_max' , 20)
+setpar('motor.conf1.maxDutyCycle' , 0.99)
+setpar('motor.conf1.anglechoice', 1)
 # %%
 
 setpar('motor.conf1.anglechoice', 1)
 
 setpar('motor.state1.Iq_offset_SP', 10)
 
-setpar('motor.state1.Iq_offset_SP', 1)
+setpar('motor.state1.Iq_offset_SP', 1.5)
 time.sleep(0.5)
 setpar('motor.state1.Iq_offset_SP', 0)
 
@@ -444,10 +468,9 @@ setpar('motor.hfi1.hfi_V', hfi_v)
 setpar('motor.hfi1.hfi_on', 1)
 setpar('motor.conf1.anglechoice', 3)
 
-
 # %%
 signals = setTrace(['motor.state1.ia', 'motor.state1.ib', 'motor.state1.ic'])
-df = trace(5)
+df = trace(0.1)
 df.plot()
 
 # %%
@@ -476,21 +499,38 @@ setpar('motor.state1.Id_offset_SP', -5)
 
 # %%
 signals = setTrace(['motor.state1.erpm',  'motor.state1.Id_SP', 'motor.state1.Iq_SP',  'motor.state1.Id_meas',
-                   'motor.state1.Iq_meas', 'motor.state.sensBus', 'motor.state.curtime', 'motor.state1.Vq', 'motor.state1.Vd'])
-df = trace(0.5)
+                   'motor.state1.Iq_meas', 'motor.state.sensBus', 'motor.state1.Vq', 'motor.state1.Vd'])
+df = trace(3)
 
 df.plot()
 
 
 # %%
+signals = setTrace(['motor.state1.erpm',  'motor.state1.Id_SP', 'motor.state1.Iq_SP',  'motor.state1.Id_meas',
+                   'motor.state1.Iq_meas', 'motor.state.sensBus', 'motor.state1.Vq', 'motor.state1.Vd'])
 
-setpar('motor.state1.Iq_offset_SP', 5)
-
+setpar('motor.state1.Iq_offset_SP', 0.5)
+# %%
+setpar('motor.state1.Iq_offset_SP', 6.6)
+df = trace(3)
+setpar('motor.state1.Iq_offset_SP', 3)
+df2 = trace(1)
+setpar('motor.state1.Iq_offset_SP', 1)
+df3 = trace(1)
 setpar('motor.state1.Iq_offset_SP', 0)
-
+df.plot()
 
 # %%
-setpar('motor.state1.muziek_gain', 2)
+setpar('motor.state1.Iq_offset_SP', 5)
+
+# %%
+setpar('motor.state1.Iq_offset_SP', 3)
+df2 = trace(1)
+setpar('motor.state1.Iq_offset_SP', 1)
+df3 = trace(1)
+setpar('motor.state1.Iq_offset_SP', 0)
+# %%
+setpar('motor.state1.muziek_gain', 8)
 
 setpar('motor.state1.muziek_gain', 0)
 
@@ -566,6 +606,8 @@ print(getsig('motor.state1.current'))
 print(getsigpart('motor.state1.current', 1, 3))
 
 # %%
+setpar('motor.conf1.anglechoice', 0)
+
 NdownsamplePRBS = 1
 N = 30*NdownsamplePRBS*2047
 signals = ['motor.state1.Id_meas', 'motor.state1.Iq_meas',
@@ -574,8 +616,8 @@ setTrace(signals )
 
 
 gain = 1
-setpar('motor.state1.Vq_distgain', 3)
-setpar('motor.state1.Vd_distgain', 3)
+setpar('motor.state1.Vq_distgain', 1)
+setpar('motor.state1.Vd_distgain', 1)
 setpar('motor.state1.Iq_distgain', 0)
 setpar('motor.state1.Id_distgain', 0)
 setpar('motor.state1.mechdistgain', 0)
@@ -590,7 +632,7 @@ setpar('motor.conf1.NdownsamplePRBS', 1)  # Downsampling
 
 # %%
 
-dfout = getFFTdf(df, NdownsamplePRBS , 5*2047 )
+dfout = getFFTdf(df, NdownsamplePRBS , 10*2047 )
 f = dfout.index.values
 
 Pd = dfout['motor.state1.Id_meas'].values / dfout['motor.state1.Vd'].values
@@ -599,6 +641,16 @@ Pq = dfout['motor.state1.Iq_meas'].values / dfout['motor.state1.Vq'].values
 plt.figure(1)
 bode( Pd , f, 'Measured D axis plant')
 bode( Pq , f, 'Measured Q axis plant')
+
+plt.figure(2)
+bode( dfout['motor.state1.Vq'].values  , f, 'Open loop')
+bode( dfout['motor.state1.Vd'].values  , f, 'Open loop')
+
+plt.figure(3)
+bode( 1 / dfout['motor.state1.Vq'].values - 1 , f, 'Open loop')
+bode( 1 / dfout['motor.state1.Vd'].values - 1 , f, 'Open loop')
+
+
 
 
 plt.figure(4)
@@ -623,13 +675,13 @@ signals = ['motor.state1.BEMFa', 'motor.state1.BEMFb', 'motor.state.sensBus',
            'motor.state1.Iq_meas', 'motor.state1.Id_meas', 'motor.state1.Id_e', 'motor.state1.Iq_e']
 setTrace(signals)
 
-setpar('motor.conf1.Lambda_m', 1)
+# setpar('motor.conf1.Lambda_m', 1)
 
-vmax = 4000  # ERPM
+vmax = 20000  # ERPM
 
 setpar('motor.conf1.anglechoice', 99)
-setpar('motor.state1.Id_offset_SP', 10)
-setpar('motor.state1.i_vector_acc', 10)
+setpar('motor.state1.Id_offset_SP', 2)
+setpar('motor.state1.i_vector_acc', 500)
 setpar('motor.state1.i_vector_radpers', vmax / 60 * 2*pi)
 
 while abs(getsig('motor.state1.i_vector_radpers_act')) < 0.99 * vmax / 60 * 2*pi:
@@ -643,8 +695,10 @@ df = trace(1.5)
 
 # lambda_m = np.mean((np.max(data[1][:,0:2] , axis=0) - np.min(data[1][:,0:2] , axis=0))/2)
 
-setpar('i_vector_radpers', 0)
-setpar('i_vector_acc', 1e8)
+setpar('motor.state1.i_vector_radpers', 0)
+setpar('motor.state1.i_vector_acc', 1e8)
+
+df.filter(regex='BEMF').plot()
 
 # %% Debug HFI
 setpar('motor.hfi1.hfi_method', 1)

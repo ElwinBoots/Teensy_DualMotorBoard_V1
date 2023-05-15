@@ -10,38 +10,38 @@
 #include "defines.h"
 #include "trace.h"
 
-Biquad *lowpass_sensbus   = new Biquad( bq_type_lowpass , 500 , 0.7, 2 * f_pwm);
-Integrator *integrator = new Integrator( 1 , 2 * f_pwm);
-Integrator *integrator2 = new Integrator( 1 , 2 * f_pwm);
+Biquad *lowpass_sensbus   = new Biquad( bq_type_lowpass , 500 , 0.7, 2 * F_PWM);
+Integrator *integrator = new Integrator( 1 , 2 * F_PWM);
+Integrator *integrator2 = new Integrator( 1 , 2 * F_PWM);
 
-LeadLag *leadlag       = new LeadLag( 10 , 3 , 3 , 2 * f_pwm);
-Biquad *lowpass        = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * f_pwm);
-Biquad *lowpass_eradpers   = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * f_pwm);
-//Biquad *notch          = new Biquad( bq_type_notch , 2315.0, -20.0, 0.1 , 2 * f_pwm );
+LeadLag *leadlag       = new LeadLag( 10 , 3 , 3 , 2 * F_PWM);
+Biquad *lowpass        = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
+Biquad *lowpass_eradpers   = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
+//Biquad *notch          = new Biquad( bq_type_notch , 2315.0, -20.0, 0.1 , 2 * F_PWM );
 
-LeadLag *leadlag2       = new LeadLag( 10 , 3 , 3 , 2 * f_pwm);
-Biquad *lowpass2        = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * f_pwm);
+LeadLag *leadlag2       = new LeadLag( 10 , 3 , 3 , 2 * F_PWM);
+Biquad *lowpass2        = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
 
 
 //Current lowpass (now used at sensor level, maybe better at id,iq level?). Doesn't seem to matter much.
-Biquad *lowpassIsens1  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * f_pwm);
-Biquad *lowpassIsens2  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * f_pwm);
-Biquad *lowpassIsens3  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * f_pwm);
-Biquad *lowpassIsens4  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * f_pwm);
+Biquad *lowpassIsens1  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * F_PWM);
+Biquad *lowpassIsens2  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * F_PWM);
+Biquad *lowpassIsens3  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * F_PWM);
+Biquad *lowpassIsens4  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * F_PWM);
 
 //These are now used for power and bus current estimates
-Biquad *lowpassId1  = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * f_pwm);
-Biquad *lowpassIq1  = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * f_pwm);
+Biquad *lowpassId1  = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
+Biquad *lowpassIq1  = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
 
-Biquad *hfi_lowpass = new Biquad( bq_type_lowpass , 2000 , 0.707, 2 * f_pwm);
+Biquad *hfi_lowpass = new Biquad( bq_type_lowpass , 2000 , 0.707, 2 * F_PWM);
 
 // For setpoint
-Biquad *lowpassSP = new Biquad( bq_type_lowpass , 10 , 0.707, 2 * f_pwm);
+Biquad *lowpassSP = new Biquad( bq_type_lowpass , 10 , 0.707, 2 * F_PWM);
 
 //fast 180 deg:
-MotionProfile *SPprofile = new MotionProfile( 0 , 0.000500000000000000 , 0.0193000000000000 , 0 , 3.14159265358979 , 157.079632679490 , 7853.98163397448 , 15632147.3532855 , 1 / (2 * f_pwm) );
+MotionProfile *SPprofile = new MotionProfile( 0 , 0.000500000000000000 , 0.0193000000000000 , 0 , 3.14159265358979 , 157.079632679490 , 7853.98163397448 , 15632147.3532855 , 1 / (2 * F_PWM) );
 
-Biquad *lowpass_ss_offset = new Biquad( bq_type_lowpass , 10 , 0.707, 2 * f_pwm);
+Biquad *lowpass_ss_offset = new Biquad( bq_type_lowpass , 10 , 0.707, 2 * F_PWM);
 
 //There are 4 hardware quadrature encoder channels available the Teensy 4.x.
 //The Teensy 4.1 Encoders are supported on pins: 0, 1, 2, 3, 4, 5, 7, 30, 31, 33, 36 and 37.
@@ -51,7 +51,7 @@ QuadEncoder Encoder2(2, 30, 31 , 0 , 33);//Encoder 2 on pins 30 and 31, index on
 
 
 void initparams( motor_total_t* m ) {
-  m->conf.Ts = 1e6 / (2 * f_pwm);
+  m->conf.Ts = 1e6 / (2 * F_PWM);
   m->conf.T = m->conf.Ts / 1e6;
   m->conf.Busadc2Vbus = 1 / 4095.0 * 3.3 * ((68.3 + 5.05) / 5.05); //5.1 changed to 5.05 to improve accuracy. May differ board to board.
   m->conf.V_Bus = 24; //Bus Voltage
@@ -312,7 +312,7 @@ void flexpwm2_init() {     //set PWM
   FLEXPWM2_SM0CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
   FLEXPWM2_SM1CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
   FLEXPWM2_SM2CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
-  FLEXPWM2_SM0VAL1 = (uint32_t)((float)F_BUS_ACTUAL / f_pwm - 1) / 2; //Set the modulus value (dictates the frequency)
+  FLEXPWM2_SM0VAL1 = (uint32_t)((float)F_BUS_ACTUAL / F_PWM - 1) / 2; //Set the modulus value (dictates the frequency)
   FLEXPWM2_SM1VAL1 = FLEXPWM2_SM0VAL1;  //Set the modulus value (dictates the frequency)
   FLEXPWM2_SM2VAL1 = FLEXPWM2_SM0VAL1;  //Set the modulus value (dictates the frequency)
   FLEXPWM2_SM0INIT = -FLEXPWM2_SM0VAL1; //Good for center aligned PWM, see manual
@@ -356,7 +356,7 @@ void flexpwm4_init() {     //set PWM
   FLEXPWM4_SM0CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
   FLEXPWM4_SM1CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
   FLEXPWM4_SM2CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
-  FLEXPWM4_SM0VAL1 = (uint32_t)((float)F_BUS_ACTUAL / f_pwm - 1) / 2; //Set the modulus value (dictates the frequency)
+  FLEXPWM4_SM0VAL1 = (uint32_t)((float)F_BUS_ACTUAL / F_PWM - 1) / 2; //Set the modulus value (dictates the frequency)
   FLEXPWM4_SM1VAL1 = FLEXPWM4_SM0VAL1;  //Set the modulus value (dictates the frequency)
   FLEXPWM4_SM2VAL1 = FLEXPWM4_SM0VAL1;  //Set the modulus value (dictates the frequency)
   FLEXPWM4_SM0INIT = -FLEXPWM4_SM0VAL1; //Good for center aligned PWM, see manual
@@ -461,10 +461,10 @@ void adcetc1_isr() {
   motor.state.sensBus2 = (ADC_ETC_TRIG4_RESULT_3_2 & 4095) * motor.conf.Busadc2Vbus;   // 4095.0 * 3.3 * ((68.3+5.05)/5.05);
 
   if ( motor.state.sensBus > motor.conf.V_Bus + 1 ) {
-    //    digitalWrite( chopperpin , HIGH);
+    //    digitalWrite( CHOPPERPIN , HIGH);
   }
   else {
-    //    digitalWrite( chopperpin , LOW);
+    //    digitalWrite( CHOPPERPIN , LOW);
   }
   if ( motor.state.sensBus > 45 or motor.state.sensBus2 > 45 ) {
     motor.state1.OutputOn = false;
@@ -703,10 +703,10 @@ void Transforms()
   // For Park and Clarke see https://www.cypress.com/file/222111/download
   // Power-variant Clarke transform. Asuming ia+ib+ic=0:
   motor.state1.Ialpha = motor.state1.ia;
-  motor.state1.Ibeta = one_by_sqrt3 * motor.state1.ia + two_by_sqrt3 * motor.state1.ib;
+  motor.state1.Ibeta = ONE_BY_SQRT3 * motor.state1.ia + TWO_BY_SQRT3 * motor.state1.ib;
 
   //  motor.state2.Ialpha = motor.state2.ia;
-  //  motor.state2.Ibeta = one_by_sqrt3 * motor.state2.ia + two_by_sqrt3 * motor.state2.ib;
+  //  motor.state2.Ibeta = ONE_BY_SQRT3 * motor.state2.ia + TWO_BY_SQRT3 * motor.state2.ib;
 
   // Park transform, ride the wave option
   motor.state1.thetaPark_enc = motor.conf1.N_pp * (motor.state1.encoderPos1 % motor.conf1.enccountperrev) * motor.conf1.enc2rad + motor.conf1.commutationoffset; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
@@ -1028,7 +1028,7 @@ void Transforms()
   motor.state1.Vq += motor.state1.muziek_gain_V * muziek[ (motor.state.curloop / (50 / (int)motor.conf.Ts)) % (sizeof(muziek) / 4) ];
 
   // Voltage clipping
-  motor.state1.maxVolt = motor.conf1.maxDutyCycle * motor.state.sensBus_lp * one_by_sqrt3;
+  motor.state1.maxVolt = motor.conf1.maxDutyCycle * motor.state.sensBus_lp * ONE_BY_SQRT3;
   motor.state1.Vtot = NORM2_f( motor.state1.Vd , motor.state1.Vq );
   if ( motor.state1.Vtot > motor.state1.maxVolt) {
     if ( motor.conf1.clipMethod == 0 ) {
@@ -1097,8 +1097,8 @@ void Transforms()
 
   // Inverse Power-variant Clarke transform
   motor.state1.Va = motor.state1.Valpha;
-  motor.state1.Vb = -0.5 * motor.state1.Valpha + sqrt3_by_2 * motor.state1.Vbeta;
-  motor.state1.Vc = -0.5 * motor.state1.Valpha - sqrt3_by_2 * motor.state1.Vbeta;
+  motor.state1.Vb = -0.5 * motor.state1.Valpha + SQRT3_by_2 * motor.state1.Vbeta;
+  motor.state1.Vc = -0.5 * motor.state1.Valpha - SQRT3_by_2 * motor.state1.Vbeta;
 
   //See https://microchipdeveloper.com/mct5001:start Zero Sequence Modulation Tutorial
   float Vcm = -(max(max(motor.state1.Va, motor.state1.Vb), motor.state1.Vc) + min(min(motor.state1.Va, motor.state1.Vb), motor.state1.Vc)) / 2;
@@ -1157,8 +1157,8 @@ void Transforms()
 
     // Inverse Power-variant Clarke transform
     Va2 = Valpha2;
-    Vb2 = -0.5 * Valpha2 + sqrt3_by_2 * Vbeta2;
-    Vc2 = -0.5 * Valpha2 - sqrt3_by_2 * Vbeta2;
+    Vb2 = -0.5 * Valpha2 + SQRT3_by_2 * Vbeta2;
+    Vc2 = -0.5 * Valpha2 - SQRT3_by_2 * Vbeta2;
 
     //See https://microchipdeveloper.com/mct5001:start Zero Sequence Modulation Tutorial
     // These lines make SVM happen:
@@ -1354,12 +1354,12 @@ void processSerialIn() {
 
     case 'C':
       {
-        integrator = new Integrator( motor.conf1.fInt , 2 * f_pwm);
-        leadlag       = new LeadLag( motor.conf1.fBW , motor.conf1.alpha1 , motor.conf1.alpha2 , 2 * f_pwm);
-        lowpass        = new Biquad( bq_type_lowpass , motor.conf1.fLP , 0.7, 2 * f_pwm);
-        //        integrator2 = new Integrator( fInt2 , 2 * f_pwm);
-        //        leadlag2       = new LeadLag( fBW2 , alpha1_2 , alpha2_2 , 2 * f_pwm);
-        //        lowpass2        = new Biquad( bq_type_lowpass , fLP2 , 0.7 , 2 * f_pwm);
+        integrator = new Integrator( motor.conf1.fInt , 2 * F_PWM);
+        leadlag       = new LeadLag( motor.conf1.fBW , motor.conf1.alpha1 , motor.conf1.alpha2 , 2 * F_PWM);
+        lowpass        = new Biquad( bq_type_lowpass , motor.conf1.fLP , 0.7, 2 * F_PWM);
+        //        integrator2 = new Integrator( fInt2 , 2 * F_PWM);
+        //        leadlag2       = new LeadLag( fBW2 , alpha1_2 , alpha2_2 , 2 * F_PWM);
+        //        lowpass2        = new Biquad( bq_type_lowpass , fLP2 , 0.7 , 2 * F_PWM);
         break;
       }
 
@@ -1526,12 +1526,12 @@ void processSerialIn() {
   }
 
   if (settingByte == 'C') {
-    integrator = new Integrator( fInt , 2 * f_pwm);
-    leadlag       = new LeadLag( fBW , alpha1 , alpha2 , 2 * f_pwm);
-    lowpass        = new Biquad( bq_type_lowpass , fLP , 0.7, 2 * f_pwm);
-    integrator2 = new Integrator( fInt2 , 2 * f_pwm);
-    leadlag2       = new LeadLag( fBW2 , alpha1_2 , alpha2_2 , 2 * f_pwm);
-    lowpass2        = new Biquad( bq_type_lowpass , fLP2 , 0.7 , 2 * f_pwm);
+    integrator = new Integrator( fInt , 2 * F_PWM);
+    leadlag       = new LeadLag( fBW , alpha1 , alpha2 , 2 * F_PWM);
+    lowpass        = new Biquad( bq_type_lowpass , fLP , 0.7, 2 * F_PWM);
+    integrator2 = new Integrator( fInt2 , 2 * F_PWM);
+    leadlag2       = new LeadLag( fBW2 , alpha1_2 , alpha2_2 , 2 * F_PWM);
+    lowpass2        = new Biquad( bq_type_lowpass , fLP2 , 0.7 , 2 * F_PWM);
   }
   }
 */
