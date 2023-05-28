@@ -20,6 +20,18 @@
 #define SSPIN 35
 #define SSPIN2 40 
 
+// First order lowpass filter.
+// c_lowpass = 1 - exp( -f_lowpass * 2 * pi * Ts );
+// Where f_lowpass is the lowpass frequency in [Hz] and Ts is the sample time in [s]
+
+#define LOWPASS( output, input, c_lowpass)  (output += (c_lowpass) * ((input) - (output)))
+
+
+enum commands {
+  NO_COMMAND = 0,
+  UPDATE_CONTROLLER = 1
+};
+
 typedef struct setpoint_t {
   bool SPdir;
   int spNgo;
@@ -43,7 +55,6 @@ typedef struct hfi_t {
   bool hfi_firstcycle;
   float hfi_abs_pos;
   bool hfi_useforfeedback;
-  float hfi_half_int_prev;
   bool hfi_use_lowpass;
   float hfi_prev;
   float hfi_distgain;
@@ -77,6 +88,7 @@ typedef struct mot_conf_t {
   int enccountperrev;
   float enc2rad;
   float I_max;
+  float T_max;
   float Kp_iq;
   float Kp_id;
   float Ki_iq; //Series PI controller. Ki = w0. Choose this to be R / Lq.
@@ -85,6 +97,7 @@ typedef struct mot_conf_t {
   float N_pp; //Number of pole pairs
   unsigned int clipMethod;
   float maxerror;
+  unsigned int Command;
   
   //Motor parameters
   float Kt_Nm_Apeak;
@@ -92,6 +105,15 @@ typedef struct mot_conf_t {
   float Lq; //[Henry] Lq induction: phase-zero
   float Lambda_m; //[Weber] Note: on the fly changes of Kt do not adjust this value!
   float Kp;
+  float Ki;
+  float Kd;
+  float lowpass_c;
+  float Kp_prep;
+  float Ki_prep;
+  float Kd_prep;
+  float lowpass_c_prep;
+  float enc_transmission;
+  
   float fBW;
   float alpha1;
   float alpha2;
@@ -120,6 +142,12 @@ typedef struct mot_state_t {
   float VSP;
   float i_vector_radpers;
   float i_vector_acc;
+  float Kp_out;
+  float Kp_out_prev;
+  float Kd_out;
+  float Ki_sum;
+  float Ki_out;
+  float lp_out;
   float mechcontout;
   float Iout;
   float muziek_gain;
@@ -186,7 +214,8 @@ typedef struct mot_state_t {
   float Iq_distgain;
   float Id_distgain;
   float mechdistgain;
-
+  float rdistgain;
+  
   float maxVolt;
   float Vtot;
   float rmech;

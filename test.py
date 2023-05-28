@@ -281,8 +281,8 @@ setpar('motor.conf1.clipMethod', 0)
 setpar('motor.conf1.clipMethod', 1)
 
 # %%
-# setpar('motor.conf1.ridethewave', 1)
-# time.sleep(1)
+setpar('motor.conf1.ridethewave', 1)
+time.sleep(1)
 
 setpar('motor.conf1.commutationoffset', 0)
 
@@ -335,6 +335,8 @@ setpar('motor.conf1.Ki_id', R/Ld)  # Current loop Ki
 
 setpar('motor.conf1.I_max', 15)
 setpar('motor.conf1.maxDutyCycle', 0.99)
+
+setpar('motor.conf1.enc_transmission' , 1)
 
 # %% Trampa 160KV
 #Rotate by hand first
@@ -670,6 +672,71 @@ plt.ylim([ 100 , 300])
 plt.title('Ld [uH]')
 
 
+# %% Open loop identification
+NdownsamplePRBS = 10
+N = 15*NdownsamplePRBS*2047
+
+signals = ['motor.state1.Id_meas', 'motor.state1.Iq_meas',
+           'motor.state1.dist', 'motor.state1.emech' , 'motor.state1.mechcontout' , 'motor.state1.Iq_SP']
+setTrace(signals )
+
+
+gain = 0.05
+setpar('motor.state1.Vq_distgain', 0)
+setpar('motor.state1.Vd_distgain', 0)
+setpar('motor.state1.Iq_distgain', 0)
+setpar('motor.state1.Id_distgain', 0)
+setpar('motor.state1.mechdistgain', 1)
+
+setpar('motor.conf1.NdownsamplePRBS', NdownsamplePRBS)  # Downsampling
+setpar('motor.state1.distval', gain)  # disturbance amplitude
+setpar('motor.state1.distoff', 0)  # disturbance offset
+df = trace(N * Ts)
+setpar('motor.state1.distval', 0)  # disturbance amplitude
+setpar('motor.state1.distoff', 0)  # disturbance offset
+setpar('motor.conf1.NdownsamplePRBS', 1)  # Downsampling
+
+
+dfout = getFFTdf(df, NdownsamplePRBS , 10*2047 )
+f = dfout.index.values
+
+plt.figure(1)
+bode( -dfout['motor.state1.emech'] , f, 'Measured D axis plant')
+
+
+# %% Closed loop identification
+NdownsamplePRBS = 10
+N = 15*NdownsamplePRBS*2047
+
+signals = ['motor.state1.Id_meas', 'motor.state1.Iq_meas',
+           'motor.state1.dist', 'motor.state1.emech' , 'motor.state1.mechcontout' , 'motor.state1.Iq_SP']
+setTrace(signals )
+
+
+gain = 0.05
+setpar('motor.state1.Vq_distgain', 0)
+setpar('motor.state1.Vd_distgain', 0)
+setpar('motor.state1.Iq_distgain', 0)
+setpar('motor.state1.Id_distgain', 0)
+setpar('motor.state1.mechdistgain', 1)
+
+setpar('motor.conf1.NdownsamplePRBS', NdownsamplePRBS)  # Downsampling
+setpar('motor.state1.distval', gain)  # disturbance amplitude
+setpar('motor.state1.distoff', 0)  # disturbance offset
+df = trace(N * Ts)
+setpar('motor.state1.distval', 0)  # disturbance amplitude
+setpar('motor.state1.distoff', 0)  # disturbance offset
+setpar('motor.conf1.NdownsamplePRBS', 1)  # Downsampling
+
+
+dfout = getFFTdf(df, NdownsamplePRBS , 10*2047 )
+f = dfout.index.values
+
+S = dfout['motor.state1.mechcontout']
+plt.figure(1)
+bode( 1/S - 1 , f, 'Measured D axis plant')
+
+
 # %% Detect Lambda_m
 signals = ['motor.state1.BEMFa', 'motor.state1.BEMFb', 'motor.state.sensBus',
            'motor.state1.Iq_meas', 'motor.state1.Id_meas', 'motor.state1.Id_e', 'motor.state1.Iq_e']
@@ -986,11 +1053,14 @@ setpar( 'motor.conf1.Kp' , 23.3)
 setpar( 'motor.hfi1.diq_compensation_on' , 1)
 setpar( 'motor.hfi1.diq_compensation_on' , 0)
 #%%  
-prepSP( 360/360*2*pi , 20*pi , 1000 ,100000)
+prepSP( 360/360*2*pi , 50*pi , 250 ,100000)
+
 setpar('motor.setpoint.SPdir' , 1)
-
 setpar('motor.setpoint.spNgo' , 2)
-
+while (getsig('motor.state1.REFstatus') > 0):
+    bla = 1;
+setpar('motor.setpoint.SPdir' , 0)
+setpar('motor.setpoint.spNgo' , 2)
 
 #%%  
 p = 2*np.pi/3
@@ -1045,3 +1115,78 @@ for p in np.linspace( 0.1 , 2*pi/10 , 11):
     while (getsig('motor.state1.REFstatus') > 0):
         bla = 1;
     time.sleep(delay)
+    
+    
+#%%  
+BW = 100;
+
+J = 2.5e-5
+
+gain_at_BW = J * (BW*2*pi)**2
+alpha_i = 6
+alpha_1 = 3
+alpha_2 = 3
+
+
+if alpha_i > 0:
+    Ki = BW*2*pi*Ts/alpha_i
+else:
+    Ki = 0
+if alpha_1 > 0:
+    Kd = alpha_1/(Ts*BW*2*pi)
+else:
+    Kd = 0
+if alpha_2 > 0:
+    lowpass_c = 1-np.exp(-BW*2*pi*alpha_2*Ts)
+else:
+    lowpass_c =1
+    
+Kp = gain_at_BW * abs(lowpass_c + np.exp(pi*BW*Ts*2j) - 1) / (abs(lowpass_c*((Ki*np.exp(pi*BW*Ts*2j)) / (np.exp(pi*BW*Ts*2j) - 1) + 1) * (Kd - Kd*np.exp(-pi*BW*Ts*2j) + 1) )) 
+
+
+setpar( 'motor.conf1.Kp_prep' , Kp )
+setpar( 'motor.conf1.Kd_prep' , Kd )
+setpar( 'motor.conf1.Ki_prep' , Ki )
+setpar( 'motor.conf1.lowpass_c_prep' , lowpass_c )
+
+
+setpar( 'motor.state1.rmechoffset' , getsig('motor.state1.rmechoffset') -getsig( 'motor.state1.emech' ) )
+
+setpar( 'motor.conf1.Command' , 1 )
+
+#%%  
+setpar('motor.conf1.T_max' , 1e8)
+
+NdownsamplePRBS = 5
+N = 15*NdownsamplePRBS*2047
+
+signals = ['motor.state1.Id_meas', 'motor.state1.Iq_meas',
+           'motor.state1.dist', 'motor.state1.emech' , 'motor.state1.mechcontout' , 'motor.state1.Iq_SP' , 'motor.state1.Kp_out']
+setTrace(signals )
+
+
+gain = 1
+setpar('motor.state1.Vq_distgain', 0)
+setpar('motor.state1.Vd_distgain', 0)
+setpar('motor.state1.Iq_distgain', 0)
+setpar('motor.state1.Id_distgain', 0)
+setpar('motor.state1.mechdistgain', 0)
+setpar('motor.state1.rdistgain', 1)
+
+
+setpar('motor.conf1.NdownsamplePRBS', NdownsamplePRBS)  # Downsampling
+setpar('motor.state1.distval', gain)  # disturbance amplitude
+setpar('motor.state1.distoff', 0)  # disturbance offset
+df = trace(N * Ts)
+setpar('motor.state1.distval', 0)  # disturbance amplitude
+setpar('motor.state1.distoff', 0)  # disturbance offset
+setpar('motor.conf1.NdownsamplePRBS', 1)  # Downsampling
+setpar('motor.state1.rdistgain', 0)
+
+
+dfout = getFFTdf(df, NdownsamplePRBS , 10*2047 )
+f = dfout.index.values
+
+
+plt.figure(1)
+bode( dfout['motor.state1.mechcontout'] , f, 'Measured controller')

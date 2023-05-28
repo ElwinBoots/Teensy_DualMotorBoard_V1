@@ -74,6 +74,8 @@ void initmotor( mot_conf_t* m , mot_state_t* state ) {
 
   m->maxerror = 0.5;
 
+  m->T_max = 1;
+
   //Motor parameters
   m->N_pp = 4; //Number of pole pairs
   m->Ld = 10e-3; //[Henry] Ld induction: phase-zero
@@ -102,8 +104,8 @@ void setup() {
   digitalWrite( ENGATE2 , 1); // To be updated!
 
   SPI_init( SSPIN );  // Only for DRV8301. Disable this for DRV8302
-  //  SPI_init( SSPIN2 );  // Only for DRV8301. Disable this for DRV8302
-  DRV8302_init( SSPIN2 , 13 ); // Note: pin 13 is also the SCLK pin for communication with DRV8301 and the LED.
+  SPI_init( SSPIN2 );  // Only for DRV8301. Disable this for DRV8302
+  //DRV8302_init( SSPIN2 , 13 ); // Note: pin 13 is also the SCLK pin for communication with DRV8301 and the LED.
   xbar_init();
   adc_init();
   adc_etc_init();
@@ -163,12 +165,12 @@ void adc_init() {
                | ADC_CFG_ADTRG;       // Hardware trigger selected
   ADC2_CFG = ADC1_CFG;
 
-//  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_02 &= ~ (1 << 12) ; // disable keeper pin 14, as per manual
-//  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_03 &= ~ (1 << 12) ; // disable keeper pin 15, as per manual
-//  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_07 &= ~ (1 << 12) ; // disable keeper pin 16, as per manual
-//  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_06 &= ~ (1 << 12) ; // disable keeper pin 17, as per manual
-//  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_01 &= ~ (1 << 12) ; // disable keeper pin 18, as per manual
-//  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_00 &= ~ (1 << 12) ; // disable keeper pin 19, as per manual
+  //  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_02 &= ~ (1 << 12) ; // disable keeper pin 14, as per manual
+  //  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_03 &= ~ (1 << 12) ; // disable keeper pin 15, as per manual
+  //  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_07 &= ~ (1 << 12) ; // disable keeper pin 16, as per manual
+  //  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_06 &= ~ (1 << 12) ; // disable keeper pin 17, as per manual
+  //  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_01 &= ~ (1 << 12) ; // disable keeper pin 18, as per manual
+  //  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_00 &= ~ (1 << 12) ; // disable keeper pin 19, as per manual
 
   CORE_PIN14_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
   CORE_PIN15_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
@@ -178,7 +180,7 @@ void adc_init() {
   CORE_PIN19_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
   CORE_PIN20_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
   CORE_PIN21_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
-  
+
   CORE_PIN24_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
   CORE_PIN25_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
   CORE_PIN26_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
@@ -204,18 +206,18 @@ void adc_etc_init() {
   ADC_ETC_CTRL |= 1;  // TRIG_ENABLE
 
   /* ADC channel, pin numbers
-   
-   Note: 0 to 13 is same as 14 to 27. Do not try to use these for analog in!
-        7,      // 0/A0  AD_B1_02   ENC1_A             
+
+    Note: 0 to 13 is same as 14 to 27. Do not try to use these for analog in!
+        7,      // 0/A0  AD_B1_02   ENC1_A
         8,      // 1/A1  AD_B1_03   ENC1_B
         12,     // 2/A2  AD_B1_07   M1 out A INH-A
         11,     // 3/A3  AD_B1_06   ENC1_I
         6,      // 4/A4  AD_B1_01   M2 out C INH-C2
         5,      // 5/A5  AD_B1_00   M2 out B INH-B2
         15,     // 6/A6  AD_B1_10   M2 out A INH-A2
-        0,      // 7/A7  AD_B1_11   M2 Ia              --> Doesn't work       
-        13,     // 8/A8  AD_B1_08   M2 Ib              --> Doesn't work                       
-        14,     // 9/A9  AD_B1_09   M2 Ic              --> Doesn't work       
+        0,      // 7/A7  AD_B1_11   M2 Ia              --> Doesn't work
+        13,     // 8/A8  AD_B1_08   M2 Ib              --> Doesn't work
+        14,     // 9/A9  AD_B1_09   M2 Ic              --> Doesn't work
         255,  // 10/A10 AD_B0_12   -
         255,  // 11/A11 AD_B0_13    SDI (SPI)
         3,      // 12/A12 AD_B1_14  SDO (SPI)
@@ -231,9 +233,9 @@ void adc_etc_init() {
         0,      // 21/A7  AD_B1_11  M2 Vbus
         13,     // 22/A8  AD_B1_08  M1 out C INH-C
         14,     // 23/A9  AD_B1_09  M1 out B INH-B
-        255,    // 24/A10 AD_B0_12  M2 EMF-A  --> Exchanged for M2 Ia 
+        255,    // 24/A10 AD_B0_12  M2 EMF-A  --> Exchanged for M2 Ia
         255,    // 25/A11 AD_B0_13  M2 EMF-B
-        3,      // 26/A12 AD_B1_14  M2 EMF-C  --> Exchanged for M2 Ib 
+        3,      // 26/A12 AD_B1_14  M2 EMF-C  --> Exchanged for M2 Ib
         4,      // 27/A13 AD_B1_15  M2 nOCTW
         255,    // 28               M2 PWRGD
         255,    // 29
@@ -260,7 +262,7 @@ void adc_etc_init() {
         11,     // 17/A3  AD_B1_06  M1 Vbus
         0,      // 21/A7  AD_B1_11  M2 Vbus
 
-  Removed due to not working (wrong pin, these do not have ADC connection):
+    Removed due to not working (wrong pin, these do not have ADC connection):
         0,      // 7/A7  AD_B1_11   M2 Ia
         13,     // 8/A8  AD_B1_08   M2 Ib
 
@@ -445,7 +447,7 @@ void adcetc1_isr() {
   motor.state.is_v7 = (FLEXPWM2_SM0STS & FLEXPWM_SMSTS_CMPF(2));  //is_v7 = True when in v7
   FLEXPWM2_SM0STS |= FLEXPWM_SMSTS_CMPF(2); //Reset flag
 
-  //ADC1: 
+  //ADC1:
   motor.state.sens1 = (ADC_ETC_TRIG0_RESULT_1_0 & 4095) * 0.0008058608; // 4095.0 * 3.3;
   motor.state.sens1_lp = lowpassIsens1->process( motor.state.sens1 );
   motor.state.sens3 = ((ADC_ETC_TRIG0_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
@@ -473,7 +475,7 @@ void adcetc1_isr() {
       motor.state.firsterror = 41;
     }
   }
-    
+
   if (motor.state.setupready == 1) {
     if (motor.state.n_senscalib < 1e4) {
       motor.state.n_senscalib++;
@@ -497,6 +499,7 @@ void adcetc1_isr() {
       Transforms();
       changePWM();
       communicationProcess();
+      processCommands();
       motor.state.curloop++;
     }
   }
@@ -576,7 +579,7 @@ void GenSetpoint() {
   if (SPprofile->REFstatus == 0 && motor.state1.offsetVel_lp == 0) { //Note: refers to state1.
     motor.state2.rmech = int((motor.state2.rmech / motor.conf2.enc2rad)) * motor.conf2.enc2rad;
   }
-
+   motor.state1.rmech += motor.state1.dist * motor.state1.rdistgain;
 }
 
 void readENC() {
@@ -586,15 +589,16 @@ void readENC() {
   motor.state1.IndexFound2 = Encoder2.indexfound();
 
   //Hack
-//  motor.state1.encoderPos2 = Encoder1.read();
-//  motor.state1.encoderPos1 = Encoder2.read();
-//  motor.state1.IndexFound2 = Encoder1.indexfound();
-//  motor.state1.IndexFound1 = Encoder2.indexfound();
+  //  motor.state1.encoderPos2 = Encoder1.read();
+  //  motor.state1.encoderPos1 = Encoder2.read();
+  //  motor.state1.IndexFound2 = Encoder1.indexfound();
+  //  motor.state1.IndexFound1 = Encoder2.indexfound();
 }
 
 void Control() {
-  motor.state1.ymech = motor.state1.encoderPos1 * motor.conf1.enc2rad;
-  motor.state2.ymech = motor.state1.encoderPos2 * motor.conf2.enc2rad;
+  motor.state1.ymech = motor.state1.encoderPos1 * motor.conf1.enc2rad * motor.conf1.enc_transmission;
+  motor.state2.ymech = motor.state1.encoderPos2 * motor.conf2.enc2rad * motor.conf2.enc_transmission;
+  
   if (motor.hfi1.hfi_useforfeedback == 1) {
     motor.state1.ymech = motor.hfi1.hfi_abs_pos / motor.conf1.N_pp;
   }
@@ -636,33 +640,53 @@ void Control() {
     integrator2->setState(0);
   }
 
-  motor.state1.mechcontout = motor.conf1.Kp * leadlag->process( motor.state1.emech );
-  motor.state1.mechcontout = lowpass->process( motor.state1.mechcontout );
 
-  motor.state2.mechcontout = motor.conf2.Kp * leadlag2->process( motor.state2.emech );
-  motor.state2.mechcontout = lowpass2->process( motor.state2.mechcontout );
+  motor.state1.Kp_out = motor.conf1.Kp * motor.state1.emech;
 
-  // Clipping to be improved...
-  motor.state1.Iout = integrator->processclip( motor.state1.mechcontout , -motor.conf1.I_max * (1.5 * motor.conf1.N_pp * motor.conf1.Lambda_m ) - motor.state1.mechcontout , motor.conf1.I_max * (1.5 * motor.conf1.N_pp * motor.conf1.Lambda_m ) - motor.state1.mechcontout );
-  //motor.state2.Iout = integrator->processclip( motor.state1.mechcontout , -motor.conf1.I_max * (1.5 * motor.conf1.N_pp * motor.conf1.Lambda_m ) - motor.state1.mechcontout , motor.conf1.I_max * (1.5 * motor.conf1.N_pp * motor.conf1.Lambda_m ) - motor.state1.mechcontout );
+  motor.state1.Kd_out = motor.conf1.Kd * (motor.state1.Kp_out - motor.state1.Kp_out_prev) + motor.state1.Kp_out;
+  motor.state1.Kp_out_prev = motor.state1.Kp_out;
 
-  motor.state1.mechcontout += motor.state1.Iout;
+  motor.state1.Ki_sum += motor.conf1.Ki * motor.state1.Kd_out;
+  truncate_number_abs(&motor.state1.Ki_sum, motor.conf1.T_max);
+
+  motor.state1.Ki_out = motor.state1.Ki_sum + motor.state1.Kd_out;
+
+  LOWPASS( motor.state1.lp_out, motor.state1.Ki_out, motor.conf1.lowpass_c);
+
+  motor.state1.mechcontout = motor.state1.lp_out + motor.state1.dist * motor.state1.mechdistgain;
+
   if (motor.state1.OutputOn) {
     motor.state1.mechcontout += motor.state1.acc * motor.state1.Jload;
     motor.state1.mechcontout += motor.state1.vel * motor.state1.velFF;
   }
-  motor.state1.mechcontout += motor.state1.dist * motor.state1.mechdistgain;
 
-  motor.state2.mechcontout += motor.state2.Iout;
-  if (motor.state1.OutputOn) {
-    motor.state2.mechcontout += motor.state2.acc * motor.state2.Jload;
-    motor.state2.mechcontout += motor.state2.vel * motor.state2.velFF;
-  }
-  motor.state2.mechcontout += motor.state1.dist * motor.state2.mechdistgain;
-
-  if (motor.conf1.haptic == 1) {
-    motor.state2.mechcontout = motor.state1.mechcontout;
-  }
+  //  motor.state1.mechcontout = motor.conf1.Kp * leadlag->process( motor.state1.emech );
+  //  motor.state1.mechcontout = lowpass->process( motor.state1.mechcontout );
+  //
+  //  motor.state2.mechcontout = motor.conf2.Kp * leadlag2->process( motor.state2.emech );
+  //  motor.state2.mechcontout = lowpass2->process( motor.state2.mechcontout );
+  //
+  //  // Clipping to be improved...
+  //  motor.state1.Iout = integrator->processclip( motor.state1.mechcontout , -motor.conf1.I_max * (1.5 * motor.conf1.N_pp * motor.conf1.Lambda_m ) - motor.state1.mechcontout , motor.conf1.I_max * (1.5 * motor.conf1.N_pp * motor.conf1.Lambda_m ) - motor.state1.mechcontout );
+  //  //motor.state2.Iout = integrator->processclip( motor.state1.mechcontout , -motor.conf1.I_max * (1.5 * motor.conf1.N_pp * motor.conf1.Lambda_m ) - motor.state1.mechcontout , motor.conf1.I_max * (1.5 * motor.conf1.N_pp * motor.conf1.Lambda_m ) - motor.state1.mechcontout );
+  //
+  //  motor.state1.mechcontout += motor.state1.Iout;
+  //  if (motor.state1.OutputOn) {
+  //    motor.state1.mechcontout += motor.state1.acc * motor.state1.Jload;
+  //    motor.state1.mechcontout += motor.state1.vel * motor.state1.velFF;
+  //  }
+  //  motor.state1.mechcontout += motor.state1.dist * motor.state1.mechdistgain;
+  //
+  //  motor.state2.mechcontout += motor.state2.Iout;
+  //  if (motor.state1.OutputOn) {
+  //    motor.state2.mechcontout += motor.state2.acc * motor.state2.Jload;
+  //    motor.state2.mechcontout += motor.state2.vel * motor.state2.velFF;
+  //  }
+  //  motor.state2.mechcontout += motor.state1.dist * motor.state2.mechdistgain;
+  //
+  //  if (motor.conf1.haptic == 1) {
+  //    motor.state2.mechcontout = motor.state1.mechcontout;
+  //  }
 
 
   if (motor.state1.OutputOn == false) {
@@ -695,10 +719,10 @@ void Transforms()
   motor.state1.ic = -motor.state1.ia - motor.state1.ib;
   motor.state2.ic = -motor.state2.ia - motor.state2.ib;
 
-  //HACK 
-//  motor.state1.ia = motor.state2.ia;
-//  motor.state1.ib = motor.state2.ib;
-//  motor.state1.ic = motor.state2.ic;
+  //HACK
+  //  motor.state1.ia = motor.state2.ia;
+  //  motor.state1.ib = motor.state2.ib;
+  //  motor.state1.ic = motor.state2.ic;
 
   // For Park and Clarke see https://www.cypress.com/file/222111/download
   // Power-variant Clarke transform. Asuming ia+ib+ic=0:
@@ -933,8 +957,7 @@ void Transforms()
     }
     motor.hfi1.hfi_dir_int += motor.conf.T * motor.hfi1.hfi_error * motor.hfi1.hfi_gain_int2; //This the the double integrator
 
-    float hfi_half_int = motor.hfi1.hfi_gain * 0.5f * motor.conf.T * motor.hfi1.hfi_error;
-    motor.hfi1.hfi_contout += hfi_half_int + motor.hfi1.hfi_half_int_prev + motor.hfi1.hfi_dir_int; //This is the integrator and the double integrator
+    motor.hfi1.hfi_contout += motor.hfi1.hfi_gain * motor.conf.T * motor.hfi1.hfi_error + motor.hfi1.hfi_dir_int; //This is the integrator and the double integrator
     if (motor.hfi1.hfi_method == 3 || motor.hfi1.hfi_method == 4) {
       motor.hfi1.hfi_ffw = motor.state1.we * motor.conf.T;
       motor.hfi1.hfi_contout += motor.hfi1.hfi_ffw; //This is the feedforward
@@ -966,13 +989,11 @@ void Transforms()
     while ( motor.hfi1.hfi_dir_int < 0) {
       motor.hfi1.hfi_dir_int += 2 * M_PI;
     }
-    motor.hfi1.hfi_half_int_prev = hfi_half_int;
   }
   else {
     motor.hfi1.hfi_dir = motor.state1.thetaPark_obs;
     motor.hfi1.hfi_contout = motor.state1.thetaPark_obs;
     motor.hfi1.hfi_dir_int = 0;
-    motor.hfi1.hfi_half_int_prev = 0;
     motor.hfi1.hfi_firstcycle = true;
     motor.hfi1.hfi_Id_meas_low = 0;
     motor.hfi1.hfi_Iq_meas_low = 0;
@@ -993,10 +1014,8 @@ void Transforms()
     }
 
     motor.state1.Vq = motor.conf1.Kp_iq * motor.state1.Iq_e;
-    float vq_half_int = motor.conf1.Ki_iq * motor.conf.T * 0.5f * motor.state1.Vq;
-    motor.state1.vq_int_state += vq_half_int;
+    motor.state1.vq_int_state += motor.conf1.Ki_iq * motor.conf.T * motor.state1.Vq;
     motor.state1.Vq += motor.state1.vq_int_state;
-    motor.state1.vq_int_state += vq_half_int;
 
     //Additional Vq
     motor.state1.Vq += motor.state1.VSP;
@@ -1004,10 +1023,8 @@ void Transforms()
     motor.state1.Vq += motor.hfi1.hfi_V_act * motor.hfi1.compensation;
 
     motor.state1.Vd = motor.conf1.Kp_id * motor.state1.Id_e;
-    float vd_half_int = motor.conf1.Ki_id * motor.conf.T * 0.5f * motor.state1.Vd;
-    motor.state1.vd_int_state += vd_half_int;
+    motor.state1.vd_int_state += motor.conf1.Ki_id * motor.conf.T * motor.state1.Vd;;
     motor.state1.Vd += motor.state1.vd_int_state;
-    motor.state1.vd_int_state += vd_half_int;
 
     //Additional Vd
     motor.state1.Vd += motor.state1.dist * motor.state1.Vd_distgain;
@@ -1224,49 +1241,49 @@ void changePWM() {
 
 
   //  //Motor 1, flexpwm4:
-    FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
-    if (motor.state1.OutputOn == false) {
-      digitalWrite( ENGATE , 0);
-      digitalWrite( ENGATE2 , 0);
-      FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 / 2;
-      FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 / 2;
-      FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 / 2;
-    }
-    else {
-      // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
-      digitalWrite( ENGATE , 1);
-      digitalWrite( ENGATE2 , 1);
-      FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 * motor.state1.tB;
-      FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 * motor.state1.tC;
-      FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 * motor.state1.tA;
-    }
-    FLEXPWM4_SM0VAL2 = -FLEXPWM4_SM0VAL3;
-    FLEXPWM4_SM1VAL2 = -FLEXPWM4_SM1VAL3;
-    FLEXPWM4_SM2VAL2 = -FLEXPWM4_SM2VAL3;
-    FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
+  FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
+  if (motor.state1.OutputOn == false) {
+    digitalWrite( ENGATE , 0);
+    digitalWrite( ENGATE2 , 0);
+    FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 / 2;
+    FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 / 2;
+    FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 / 2;
+  }
+  else {
+    // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
+    digitalWrite( ENGATE , 1);
+    digitalWrite( ENGATE2 , 1);
+    FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 * motor.state1.tB;
+    FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 * motor.state1.tC;
+    FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 * motor.state1.tA;
+  }
+  FLEXPWM4_SM0VAL2 = -FLEXPWM4_SM0VAL3;
+  FLEXPWM4_SM1VAL2 = -FLEXPWM4_SM1VAL3;
+  FLEXPWM4_SM2VAL2 = -FLEXPWM4_SM2VAL3;
+  FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
 
 
   //Motor 2, flexpwm2:
-//  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
-//  if (motor.state1.OutputOn == false) {
-//    digitalWrite( ENGATE , 0);
-//    digitalWrite( ENGATE2 , 0);
-//    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 / 2;
-//    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 / 2;
-//    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 / 2;
-//  }
-//  else {
-//    // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
-//    digitalWrite( ENGATE , 1);
-//    digitalWrite( ENGATE2 , 1);
-//    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 * motor.state1.tC;
-//    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 * motor.state1.tB;
-//    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 * motor.state1.tA;
-//  }
-//  FLEXPWM2_SM0VAL2 = -FLEXPWM2_SM0VAL3;
-//  FLEXPWM2_SM1VAL2 = -FLEXPWM2_SM1VAL3;
-//  FLEXPWM2_SM2VAL2 = -FLEXPWM2_SM2VAL3;
-//  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
+  //  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
+  //  if (motor.state1.OutputOn == false) {
+  //    digitalWrite( ENGATE , 0);
+  //    digitalWrite( ENGATE2 , 0);
+  //    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 / 2;
+  //    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 / 2;
+  //    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 / 2;
+  //  }
+  //  else {
+  //    // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
+  //    digitalWrite( ENGATE , 1);
+  //    digitalWrite( ENGATE2 , 1);
+  //    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 * motor.state1.tC;
+  //    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 * motor.state1.tB;
+  //    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 * motor.state1.tA;
+  //  }
+  //  FLEXPWM2_SM0VAL2 = -FLEXPWM2_SM0VAL3;
+  //  FLEXPWM2_SM1VAL2 = -FLEXPWM2_SM1VAL3;
+  //  FLEXPWM2_SM2VAL2 = -FLEXPWM2_SM2VAL3;
+  //  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
 
   //  M1:
   //  FLEXPWM4 22 23 2
@@ -1319,6 +1336,22 @@ void communicationProcess() {
     motor.state.downsample--;
   }
 
+}
+
+void processCommands() {
+  switch (motor.conf1.Command) {
+    case UPDATE_CONTROLLER:
+      {
+        motor.conf1.Kp = motor.conf1.Kp_prep;
+        motor.conf1.Kd = motor.conf1.Kd_prep;
+        motor.conf1.Ki = motor.conf1.Ki_prep;
+        motor.conf1.lowpass_c = motor.conf1.lowpass_c_prep;
+//        motor.conf1.T_max
+
+        motor.conf1.Command = NO_COMMAND;
+        break;
+      }
+  }
 }
 
 void xbar_connect(unsigned int input, unsigned int output)
@@ -1549,5 +1582,30 @@ void utils_step_towards(float * value, float goal, float step) {
     } else {
       *value = goal;
     }
+  }
+}
+
+
+static inline void truncate_number(float *number, float min, float max) {
+  if (*number > max) {
+    *number = max;
+  } else if (*number < min) {
+    *number = min;
+  }
+}
+
+static inline void truncate_number_int(int *number, int min, int max) {
+  if (*number > max) {
+    *number = max;
+  } else if (*number < min) {
+    *number = min;
+  }
+}
+
+static inline void truncate_number_abs(float *number, float max) {
+  if (*number > max) {
+    *number = max;
+  } else if (*number < -max) {
+    *number = -max;
   }
 }
