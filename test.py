@@ -272,11 +272,15 @@ def getFFT(signal, Ndownsample, j0=int(1/Ts)):
     f = f[f < 1/(2*Ts*Ndownsample)]
     return SIGNAL, f
 
-def prepSP(  p , v , a , j  ):
+def prepSP(  p , v , a , j, axis=1):
     t1, t2, t3, jd = make3.make3( p , v , a , j , Ts );
     #double tstart, double t1, double t2, double t3, double p, double v_max, double a_max, double j_max
-    ser.write( b'1' + struct.pack('f',  t1) + struct.pack('f',  t2) + struct.pack('f',  t3) + struct.pack('f',  p) + struct.pack('f',  v) + struct.pack('f',  a)  + struct.pack('f',  jd) )
+    if axis == 1:
+        ser.write( b'1' + struct.pack('f',  t1) + struct.pack('f',  t2) + struct.pack('f',  t3) + struct.pack('f',  p) + struct.pack('f',  v) + struct.pack('f',  a)  + struct.pack('f',  jd) )
+    else:
+        ser.write( b'2' + struct.pack('f',  t1) + struct.pack('f',  t2) + struct.pack('f',  t3) + struct.pack('f',  p) + struct.pack('f',  v) + struct.pack('f',  a)  + struct.pack('f',  jd) )
     return t1, t2, t3, jd
+
 
 def readall( ):
     a = []
@@ -287,7 +291,12 @@ def readall( ):
 
 
 # %%
+setTrace([ 'motor.state.curtime' , 'motor.state.encoderPos1','motor.state.encoderPos2','motor.state.IndexFound1','motor.state.IndexFound2'])
+df = trace(3);
 
+df.plot()
+
+# %%
 getsig('motor.state.firsterror')
 
 # %%
@@ -329,6 +338,41 @@ setpar('motor.conf1.commutationoffset', -offset)
 
 thetaPark = getsig('motor.state1.thetaPark')
 
+# CONF2
+setpar('motor.conf2.ridethewave', 1)
+time.sleep(1)
+
+setpar('motor.conf2.commutationoffset', 0)
+
+
+setpar('motor.state2.Valpha_offset', 0.5)
+time.sleep(0.5)
+Valpha1 = getsig('motor.state2.Valpha_offset')
+Ialpha1 = getsig('motor.state2.Ialpha')
+Ibeta1 = getsig('motor.state2.Ibeta')
+Ia1 = getsig('motor.state2.ia')
+bus1 = getsig('motor.state.sensBus_lp')
+
+setpar('motor.state2.Valpha_offset', 1)
+
+time.sleep(0.5)
+Valpha2 = getsig('motor.state2.Valpha_offset')
+Va = getsig('motor.state2.Va')
+Vb = getsig('motor.state2.Vb')
+Ialpha2 = getsig('motor.state2.Ialpha')
+Ibeta2 = getsig('motor.state2.Ibeta')
+bus2 = getsig('motor.state.sensBus')
+Ia2 = getsig('motor.state2.ia')
+
+R = (Valpha2 - Valpha1) / (Ialpha2 - Ialpha1)
+
+offset = getsig('motor.state2.thetaPark_enc')
+
+setpar('motor.state2.Valpha_offset', 0)
+setpar('motor.conf2.commutationoffset', -offset)
+
+thetaPark = getsig('motor.state2.thetaPark')
+
 # %% Servo motor Wittenstein cyber MSSI 055G
 Lq = 2.6e-4
 Ld = 2.2e-4
@@ -338,7 +382,7 @@ setpar('motor.conf1.N_pp',  4)
 setpar('motor.conf1.Lq', Lq)
 setpar('motor.conf1.Ld', Ld)
 setpar('motor.state1.R', R)
-setpar('motor.conf.useIlowpass', 0)
+setpar('motor.conf1.useIlowpass', 0)
 
 f_bw = 2e3
 
@@ -351,6 +395,34 @@ setpar('motor.conf1.I_max', 15)
 setpar('motor.conf1.maxDutyCycle', 0.99)
 
 setpar('motor.conf1.enc_transmission' , 1)
+
+# Servo motor Wittenstein cyber MSSI 055G  CONF2
+Lq = 2.6e-4
+Ld = 2.2e-4
+R = 0.33
+setpar('motor.conf2.Lambda_m', 0.005405)
+setpar('motor.conf2.N_pp',  4)
+setpar('motor.conf2.Lq', Lq)
+setpar('motor.conf2.Ld', Ld)
+setpar('motor.state2.R', R)
+setpar('motor.conf2.useIlowpass', 0)
+
+f_bw = 2e3
+
+setpar('motor.conf2.Kp_iq', Lq * f_bw * 2 * pi)  # Current loop Kp
+setpar('motor.conf2.Ki_iq', R/Lq)  # Current loop Ki
+setpar('motor.conf2.Kp_id', Ld * f_bw * 2 * pi)  # Current loop Kp
+setpar('motor.conf2.Ki_id', R/Ld)  # Current loop Ki
+
+setpar('motor.conf2.I_max', 15)
+setpar('motor.conf2.maxDutyCycle', 0.99)
+
+setpar('motor.conf2.enc_transmission' , 1)
+
+
+
+
+
 
 # %% Trampa 160KV
 #Rotate by hand first
@@ -547,13 +619,17 @@ df3 = trace(1)
 setpar('motor.state1.Iq_offset_SP', 0)
 # %%
 setpar('motor.state1.muziek_gain', 3)
+setpar('motor.state2.muziek_gain', 3)
 
 setpar('motor.state1.muziek_gain', 0)
-
+setpar('motor.state2.muziek_gain', 0)
 
 
 setpar('motor.state1.offsetVel' ,  100 )
+setpar('motor.state2.offsetVel' ,  100 )
 
+setpar('motor.state1.offsetVel' ,  0 )
+setpar('motor.state2.offsetVel' ,  0 )
 
 
 # %%
@@ -597,9 +673,9 @@ signals = setTrace(['motor.state.curtime', 'motor.state.sens1',
 signals = setTrace(['motor.state1.dist', 'motor.state1.noisebit'])
 
 
-setpar('motor.setpoint.SPdir', 1)
+setpar('motor.state1.SPdir', 1)
 signals = setTrace(['motor.state1.rmech'])
-setpar('motor.setpoint.spNgo', 5)
+setpar('motor.state1.spNgo', 5)
 df = trace(0.5)
 df.plot()
 
@@ -640,13 +716,13 @@ setpar('motor.state1.Iq_distgain', 0)
 setpar('motor.state1.Id_distgain', 0)
 setpar('motor.state1.mechdistgain', 0)
 
-setpar('motor.conf1.NdownsamplePRBS', NdownsamplePRBS)  # Downsampling
+setpar('motor.conf.NdownsamplePRBS', NdownsamplePRBS)  # Downsampling
 setpar('motor.state1.distval', gain)  # disturbance amplitude
 setpar('motor.state1.distoff', 0)  # disturbance offset
 df = trace(N * Ts)
 setpar('motor.state1.distval', 0)  # disturbance amplitude
 setpar('motor.state1.distoff', 0)  # disturbance offset
-setpar('motor.conf1.NdownsamplePRBS', 1)  # Downsampling
+setpar('motor.conf.NdownsamplePRBS', 1)  # Downsampling
 
 # %%
 
@@ -704,13 +780,13 @@ setpar('motor.state1.Iq_distgain', 0)
 setpar('motor.state1.Id_distgain', 0)
 setpar('motor.state1.mechdistgain', 1)
 
-setpar('motor.conf1.NdownsamplePRBS', NdownsamplePRBS)  # Downsampling
+setpar('motor.conf.NdownsamplePRBS', NdownsamplePRBS)  # Downsampling
 setpar('motor.state1.distval', gain)  # disturbance amplitude
 setpar('motor.state1.distoff', 0)  # disturbance offset
 df = trace(N * Ts)
 setpar('motor.state1.distval', 0)  # disturbance amplitude
 setpar('motor.state1.distoff', 0)  # disturbance offset
-setpar('motor.conf1.NdownsamplePRBS', 1)  # Downsampling
+setpar('motor.conf.NdownsamplePRBS', 1)  # Downsampling
 
 
 dfout = getFFTdf(df, NdownsamplePRBS , 10*2047 )
@@ -739,13 +815,13 @@ setpar('motor.state1.Iq_distgain', 0)
 setpar('motor.state1.Id_distgain', 0)
 setpar('motor.state1.mechdistgain', 1)
 
-setpar('motor.conf1.NdownsamplePRBS', NdownsamplePRBS)  # Downsampling
+setpar('motor.conf.NdownsamplePRBS', NdownsamplePRBS)  # Downsampling
 setpar('motor.state1.distval', gain)  # disturbance amplitude
 setpar('motor.state1.distoff', 0)  # disturbance offset
 df = trace(N * Ts)
 setpar('motor.state1.distval', 0)  # disturbance amplitude
 setpar('motor.state1.distoff', 0)  # disturbance offset
-setpar('motor.conf1.NdownsamplePRBS', 1)  # Downsampling
+setpar('motor.conf.NdownsamplePRBS', 1)  # Downsampling
 
 
 dfout = getFFTdf(df, NdownsamplePRBS , 10*2047 )
@@ -1081,34 +1157,60 @@ setpar( 'motor.hfi1.diq_compensation_on' , 1)
 setpar( 'motor.hfi1.diq_compensation_on' , 0)
 #%%  
 
-setpar('motor.state1.Jload' , 3.7e-5)
-setpar('motor.state1.velFF' , 5e-5)
+setpar('motor.state1.Jload' , 2.4e-5)
+setpar('motor.state1.velFF' , 0)
+setpar('motor.state2.Jload' , 3.7e-5)
+setpar('motor.state2.velFF' , 0)
 
-setTrace( ['motor.state.sensBus' , 'motor.state1.rmech' , 'motor.state1.vel', 'motor.state1.emech', 'motor.state1.Vd', 'motor.state1.Vq' , 'motor.state1.Iq_SP'])
+
+setTrace( ['motor.state.sensBus' , 'motor.state.sensBus2' ,'motor.state1.rmech' , 'motor.state1.vel', 'motor.state1.emech', 'motor.state1.Vd', 'motor.state1.Vq' , 'motor.state1.Iq_SP', 'motor.state2.Iq_SP'])
 # setTrace( ['motor.state1.emech' ])
 
-prepSP( 90/360*2*pi , 250 , 12000 ,2500000)
+p = 360
+prepSP( p/360*2*pi , 250 , 8000 ,2500000 , 1)
+prepSP( p/360*2*pi , 250 , 8000 ,2500000 , 2)
 
-setpar('motor.setpoint.SPdir' , 1)
-setpar('motor.setpoint.spNgo' , 8)
-df = trace(0.3)
-while (getsig('motor.setpoint.spNgo') > 0 or getsig('motor.state1.REFstatus') > 0 ):
+setpar('motor.state1.SPdir' , 1)
+setpar('motor.state2.SPdir' , 0)
+setpar('motor.state1.spNgo' , 4)
+setpar('motor.state2.spNgo' , 4)
+# df = trace(0.3)
+while (getsig('motor.state2.spNgo') > 0 or getsig('motor.state2.REFstatus') > 0 ):
     bla = 1;
-setpar('motor.setpoint.SPdir' , 0)
-setpar('motor.setpoint.spNgo' , 8)
+setpar('motor.state1.SPdir' , 0)
+setpar('motor.state2.SPdir' , 1)
+setpar('motor.state1.spNgo' , 4)
+setpar('motor.state2.spNgo' , 4)
 
-df.plot()
+# df.plot()
 
 #%%  
 prepSP( 90/360*2*pi , 250 , 12000 ,2500000)
 
-setpar('motor.setpoint.SPdir' , 1)
-setpar('motor.setpoint.spNgo' , 8)
+setpar('motor.state1.SPdir' , 1)
+setpar('motor.state1.spNgo' , 8)
 
-while (getsig('motor.setpoint.spNgo') > 0 or getsig('motor.state1.REFstatus') > 0 ):
+while (getsig('motor.state1.spNgo') > 0 or getsig('motor.state1.REFstatus') > 0 ):
     bla = 1;
-setpar('motor.setpoint.SPdir' , 0)
-setpar('motor.setpoint.spNgo' , 8)
+setpar('motor.state1.SPdir' , 0)
+setpar('motor.state1.spNgo' , 8)
+
+#%%  
+prepSP( 90/360*2*pi , 250 , 6000 ,2500000 , 1)
+prepSP( 90/360*2*pi , 250 , 6000 ,2500000 , 2)
+
+setpar('motor.state1.SPdir' , 1)
+setpar('motor.state2.SPdir' , 1)
+setpar('motor.state1.spNgo' , 8)
+setpar('motor.state2.spNgo' , 8)
+
+while (getsig('motor.state2.spNgo') > 0 or getsig('motor.state2.REFstatus') > 0 ):
+    bla = 1;
+setpar('motor.state1.SPdir' , 0)
+setpar('motor.state2.SPdir' , 0)
+setpar('motor.state1.spNgo' , 8)
+setpar('motor.state2.spNgo' , 8)
+
 
 #%%  
 p = 2*np.pi/3
@@ -1120,14 +1222,14 @@ delay = 0
 [t1, t2, t3, jd] = prepSP(  p , v , a , j )
 
 for i in range(6):
-    setpar('motor.setpoint.SPdir' , 1)
-    setpar('motor.setpoint.spNgo',Nsp)
+    setpar('motor.state1.SPdir' , 1)
+    setpar('motor.state1.spNgo',Nsp)
     while (getsig('motor.state1.REFstatus') > 0):
         bla = 1;
     time.sleep(delay)
 
-setpar('motor.setpoint.SPdir' , 0)
-setpar('motor.setpoint.spNgo',6)
+setpar('motor.state1.SPdir' , 0)
+setpar('motor.state1.spNgo',6)
 
 #%%  
 p = 20*np.pi
@@ -1139,13 +1241,13 @@ Nsp = 1
 # delay = 0.3
 # for p in np.linspace( 2*np.pi/360*1 , 2*np.pi/360*10 , 10):
 #     [t1, t2, t3, jd] = prepSP(  p , v , a , j )
-#     setpar('motor.setpoint.SPdir' , 1)
-#     setpar('motor.setpoint.spNgo',Nsp)
+#     setpar('motor.state1.SPdir' , 1)
+#     setpar('motor.state1.spNgo',Nsp)
 #     while (getsig('motor.state1.REFstatus') > 0):
 #         bla = 1;
 #     time.sleep(delay)
-#     setpar('motor.setpoint.SPdir' , 0)
-#     setpar('motor.setpoint.spNgo',Nsp)
+#     setpar('motor.state1.SPdir' , 0)
+#     setpar('motor.state1.spNgo',Nsp)
 #     while (getsig('motor.state1.REFstatus') > 0):
 #         bla = 1;
 #     time.sleep(delay)
@@ -1153,22 +1255,61 @@ Nsp = 1
 delay = 0.00
 for p in np.linspace( 0.1 , 2*pi/10 , 11):
     [t1, t2, t3, jd] = prepSP(  p , v , a , j )
-    setpar('motor.setpoint.SPdir' , 1)
-    setpar('motor.setpoint.spNgo',Nsp)
+    setpar('motor.state1.SPdir' , 1)
+    setpar('motor.state1.spNgo',Nsp)
     while (getsig('motor.state1.REFstatus') > 0):
         bla = 1;
     time.sleep(delay)
-    setpar('motor.setpoint.SPdir' , 0)
-    setpar('motor.setpoint.spNgo',Nsp)
+    setpar('motor.state1.SPdir' , 0)
+    setpar('motor.state1.spNgo',Nsp)
     while (getsig('motor.state1.REFstatus') > 0):
         bla = 1;
     time.sleep(delay)
     
     
-#%%  
-BW = 100;
+#%% CONF1
+BW = 100
 
-# J = 2.5e-5
+J = 2.4e-5
+# J = 3.16e-5
+
+gain_at_BW = J * (BW*2*pi)**2
+alpha_i = 6
+alpha_1 = 3
+alpha_2 = 3
+
+
+if BW > 0:
+    if alpha_i > 0:
+        Ki = BW*2*pi*Ts/alpha_i
+    else:
+        Ki = 0
+    if alpha_1 > 0:
+        Kd = alpha_1/(Ts*BW*2*pi)
+    else:
+        Kd = 0
+    if alpha_2 > 0:
+        lowpass_c = 1-np.exp(-BW*2*pi*alpha_2*Ts)
+    else:
+        lowpass_c =1
+    Kp = gain_at_BW * abs(lowpass_c + np.exp(pi*BW*Ts*2j) - 1) / (abs(lowpass_c*((Ki*np.exp(pi*BW*Ts*2j)) / (np.exp(pi*BW*Ts*2j) - 1) + 1) * (Kd - Kd*np.exp(-pi*BW*Ts*2j) + 1) )) 
+else:
+    Kp = 0
+    Ki = 0
+    Kd = 0
+    lowpass_c = 1
+
+setpar( 'motor.conf1.Kp_prep' , Kp )
+setpar( 'motor.conf1.Ki_prep' , Ki )
+setpar( 'motor.conf1.Kd_prep' , Kd )
+setpar( 'motor.conf1.lowpass_c_prep' , lowpass_c )
+
+setpar( 'motor.state1.rmechoffset' , getsig('motor.state1.rmechoffset') -getsig( 'motor.state1.emech' ) ) #Set reference such that error is zero
+
+setpar( 'motor.conf1.Command' , 1 ) #Activate controller
+
+#CONF2
+
 J = 3.16e-5
 
 gain_at_BW = J * (BW*2*pi)**2
@@ -1177,33 +1318,36 @@ alpha_1 = 3
 alpha_2 = 3
 
 
-if alpha_i > 0:
-    Ki = BW*2*pi*Ts/alpha_i
+if BW > 0:
+    if alpha_i > 0:
+        Ki = BW*2*pi*Ts/alpha_i
+    else:
+        Ki = 0
+    if alpha_1 > 0:
+        Kd = alpha_1/(Ts*BW*2*pi)
+    else:
+        Kd = 0
+    if alpha_2 > 0:
+        lowpass_c = 1-np.exp(-BW*2*pi*alpha_2*Ts)
+    else:
+        lowpass_c =1
+    Kp = gain_at_BW * abs(lowpass_c + np.exp(pi*BW*Ts*2j) - 1) / (abs(lowpass_c*((Ki*np.exp(pi*BW*Ts*2j)) / (np.exp(pi*BW*Ts*2j) - 1) + 1) * (Kd - Kd*np.exp(-pi*BW*Ts*2j) + 1) )) 
 else:
+    Kp = 0
     Ki = 0
-if alpha_1 > 0:
-    Kd = alpha_1/(Ts*BW*2*pi)
-else:
     Kd = 0
-if alpha_2 > 0:
-    lowpass_c = 1-np.exp(-BW*2*pi*alpha_2*Ts)
-else:
-    lowpass_c =1
-    
-Kp = gain_at_BW * abs(lowpass_c + np.exp(pi*BW*Ts*2j) - 1) / (abs(lowpass_c*((Ki*np.exp(pi*BW*Ts*2j)) / (np.exp(pi*BW*Ts*2j) - 1) + 1) * (Kd - Kd*np.exp(-pi*BW*Ts*2j) + 1) )) 
+    lowpass_c = 1
 
+setpar( 'motor.conf2.Kp_prep' , Kp )
+setpar( 'motor.conf2.Ki_prep' , Ki )
+setpar( 'motor.conf2.Kd_prep' , Kd )
+setpar( 'motor.conf2.lowpass_c_prep' , lowpass_c )
 
-setpar( 'motor.conf1.Kp_prep' , Kp )
-setpar( 'motor.conf1.Kd_prep' , Kd )
-setpar( 'motor.conf1.Ki_prep' , Ki )
-setpar( 'motor.conf1.lowpass_c_prep' , lowpass_c )
+setpar( 'motor.state2.rmechoffset' , getsig('motor.state2.rmechoffset') -getsig( 'motor.state2.emech' ) ) #Set reference such that error is zero
 
+setpar( 'motor.conf2.Command' , 1 ) #Activate controller
 
-setpar( 'motor.state1.rmechoffset' , getsig('motor.state1.rmechoffset') -getsig( 'motor.state1.emech' ) )
-
-setpar( 'motor.conf1.Command' , 1 )
-
-#%%  
+#%% Check controller
 setpar('motor.conf1.T_max' , 1e8)
 
 NdownsamplePRBS = 5
@@ -1223,13 +1367,13 @@ setpar('motor.state1.mechdistgain', 0)
 setpar('motor.state1.rdistgain', 1)
 
 
-setpar('motor.conf1.NdownsamplePRBS', NdownsamplePRBS)  # Downsampling
+setpar('motor.conf.NdownsamplePRBS', NdownsamplePRBS)  # Downsampling
 setpar('motor.state1.distval', gain)  # disturbance amplitude
 setpar('motor.state1.distoff', 0)  # disturbance offset
 df = trace(N * Ts)
 setpar('motor.state1.distval', 0)  # disturbance amplitude
 setpar('motor.state1.distoff', 0)  # disturbance offset
-setpar('motor.conf1.NdownsamplePRBS', 1)  # Downsampling
+setpar('motor.conf.NdownsamplePRBS', 1)  # Downsampling
 setpar('motor.state1.rdistgain', 0)
 
 

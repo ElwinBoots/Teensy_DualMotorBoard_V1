@@ -34,7 +34,8 @@ Biquad *hfi_lowpass = new Biquad( bq_type_lowpass , 2000 , 0.707, 2 * F_PWM);
 Biquad *lowpassSP = new Biquad( bq_type_lowpass , 10 , 0.707, 2 * F_PWM);
 
 //fast 180 deg:
-MotionProfile *SPprofile = new MotionProfile( 0 , 0.000500000000000000 , 0.0193000000000000 , 0 , 3.14159265358979 , 157.079632679490 , 7853.98163397448 , 15632147.3532855 , 1 / (2 * F_PWM) );
+MotionProfile *SPprofile1 = new MotionProfile( 0 , 0.000500000000000000 , 0.0193000000000000 , 0 , 3.14159265358979 , 157.079632679490 , 7853.98163397448 , 15632147.3532855 , 1 / (2 * F_PWM) );
+MotionProfile *SPprofile2 = new MotionProfile( 0 , 0.000500000000000000 , 0.0193000000000000 , 0 , 3.14159265358979 , 157.079632679490 , 7853.98163397448 , 15632147.3532855 , 1 / (2 * F_PWM) );
 
 Biquad *lowpass_ss_offset = new Biquad( bq_type_lowpass , 10 , 0.707, 2 * F_PWM);
 
@@ -53,9 +54,13 @@ void initparams( motor_total_t* m ) {
   m->conf.Ndownsample = 1;
 
   m->state1.OutputOn = true;
+  m->state2.OutputOn = true;
 
   initmotor( &m->conf1 , &m->state1);
   initmotor( &m->conf2 , &m->state2);
+
+  m->state.lfsr = 0xACE1u;
+  m->state.ss_f = 1;
 }
 
 void initmotor( mot_conf_t* m , mot_state_t* state ) {
@@ -83,24 +88,21 @@ void initmotor( mot_conf_t* m , mot_state_t* state ) {
   m->alpha2 = 4.0;
   m->fInt = m->fBW / 6.0;
   m->fLP = m->fBW * 6.0;
-
-  state->lfsr = 0xACE1u;
-  state->ss_f = 1;
 }
 
 void setup() {
   initparams( &motor );
 
   Serial.begin(1);
-  
+
   pinMode( ENGATE , OUTPUT);
   digitalWrite( ENGATE , 1); // To be updated!
-  SPI_init( SSPIN );  // Only for DRV8301. 
+  SPI_init( SSPIN );  // Only for DRV8301.
 
-  digitalWrite( ENGATE2 , 1); // To be updated!
   pinMode( ENGATE2 , OUTPUT);
-  SPI_init( SSPIN2 );  // Only for DRV8301. 
-  
+  digitalWrite( ENGATE2 , 1); // To be updated!
+  SPI_init( SSPIN2 );  // Only for DRV8301.
+
   //DRV8302_init( SSPIN2 , 13 ); // Note: pin 13 is also the SCLK pin for communication with DRV8301 and the LED.
   xbar_init();
   adc_init();
@@ -387,23 +389,46 @@ void adcetc1_isr() {
   motor.state.sens4 = ((ADC_ETC_TRIG4_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
   motor.state.sens4_lp = lowpassIsens4->process( motor.state.sens4 );
   motor.state.sensBus2 = (ADC_ETC_TRIG4_RESULT_3_2 & 4095) * motor.conf.Busadc2Vbus;   // 4095.0 * 3.3 * ((68.3+5.05)/5.05);
-//
-//  if ( motor.state.sensBus > motor.conf.V_Bus + 1 ) {
-//    //    digitalWrite( CHOPPERPIN , HIGH);
-//  }
-//  else {
-//    //    digitalWrite( CHOPPERPIN , LOW);
-//  }
-  if ( motor.state.sensBus > 45 or motor.state.sensBus2 > 45 ) {
-    motor.state1.OutputOn = false;
-    motor.state2.OutputOn = false;
-    if (motor.state.firsterror == 0) {
-      motor.state.firsterror = 41;
-    }
+  
+  // Calculate currents (links sensors to axes, to be improved)
+  if (motor.conf1.useIlowpass == 1)
+  {
+    motor.state1.ia = motor.conf1.adc2A * (motor.state.sens1_lp - motor.state.sens1_calib);
+    motor.state1.ib = motor.conf1.adc2A * (motor.state.sens2_lp - motor.state.sens2_calib);
   }
-
+  else {
+    motor.state1.ia = motor.conf1.adc2A * (motor.state.sens1 - motor.state.sens1_calib);
+    motor.state1.ib = motor.conf1.adc2A * (motor.state.sens2 - motor.state.sens2_calib);
+  }
+  motor.state1.ic = -motor.state1.ia - motor.state1.ib;
+  if (motor.conf2.useIlowpass == 1)
+  {
+    motor.state2.ia = motor.conf2.adc2A * (motor.state.sens3_lp - motor.state.sens3_calib);
+    motor.state2.ib = motor.conf2.adc2A * (motor.state.sens4_lp - motor.state.sens4_calib);
+  }
+  else {
+    motor.state2.ia = motor.conf2.adc2A * (motor.state.sens3 - motor.state.sens3_calib);
+    motor.state2.ib = motor.conf2.adc2A * (motor.state.sens4 - motor.state.sens4_calib);
+  }
+  motor.state2.ic = -motor.state2.ia - motor.state2.ib;
+  
+  //
+  //  if ( motor.state.sensBus > motor.conf.V_Bus + 1 ) {
+  //    //    digitalWrite( CHOPPERPIN , HIGH);
+  //  }
+  //  else {
+  //    //    digitalWrite( CHOPPERPIN , LOW);
+  //  }
+  if ( motor.state.sensBus > 45 or motor.state.sensBus2 > 45 ) {
+    error(41 , &motor.state1);
+  }
+  if ( motor.state.sensBus2 > 45  ) {
+    error(41 , &motor.state2);
+  }
+  
   if (motor.state.setupready == 1) {
     if (motor.state.n_senscalib < 1e4) {
+      // Have to check this. Calibration not always ok.
       motor.state.n_senscalib++;
       motor.state.sens1_calib += motor.state.sens1_lp;
       motor.state.sens2_calib += motor.state.sens2_lp;
@@ -419,13 +444,20 @@ void adcetc1_isr() {
     }
     else {
       updateDisturbance(); //Switched this before readENC to have a fresher encoder position
-      GenSetpoint();
+      GenSetpoint( &motor.conf1 , &motor.state1 , SPprofile1 );
+      GenSetpoint( &motor.conf2 , &motor.state2 , SPprofile2 );
       readENC();
-      Control();
-      Transforms();
+      Control( &motor.conf1 , &motor.state1 );
+      Control( &motor.conf2 , &motor.state2 );
+      Transforms( &motor.conf1 , &motor.state1 );
+      Transforms( &motor.conf2 , &motor.state2 );
+
+      current_and_duty_limts( &motor.conf1 , &motor.state1 );
+      current_and_duty_limts( &motor.conf2 , &motor.state2 );
       changePWM();
       communicationProcess();
-      processCommands();
+      processCommands( &motor.conf1 );
+      processCommands( &motor.conf2 );
       motor.state.curloop++;
     }
   }
@@ -434,617 +466,521 @@ void adcetc1_isr() {
 
 void updateDisturbance() {
   //PRBS
-  motor.state1.downsamplePRBS++;
-  if ( motor.state1.downsamplePRBS > motor.conf1.NdownsamplePRBS) {
-    motor.state1.downsamplePRBS = 1;
-    motor.state1.noisebit  = ((motor.state1.lfsr >> 5) ^ (motor.state1.lfsr >> 7) ) & 1;  // taps: 11 9; feedback polynomial: x^11 + x^9 + 1
-    motor.state1.lfsr =  (motor.state1.lfsr >> 1) | (motor.state1.noisebit << 15);
+  motor.state.downsamplePRBS++;
+  if ( motor.state.downsamplePRBS > motor.conf.NdownsamplePRBS) {
+    motor.state.downsamplePRBS = 1;
+    motor.state.noisebit  = ((motor.state.lfsr >> 5) ^ (motor.state.lfsr >> 7) ) & 1;  // taps: 11 9; feedback polynomial: x^11 + x^9 + 1
+    motor.state.lfsr =  (motor.state.lfsr >> 1) | (motor.state.noisebit << 15);
   }
 
   //Single Sine
-  if ( motor.state.curtime / 1e6 >= (motor.state1.ss_tstart + motor.conf1.ss_n_aver / motor.state1.ss_f )) {
-    motor.state1.ss_f += motor.conf1.ss_fstep;
-    motor.state1.ss_tstart = motor.state.curtime / 1e6;
-    if (motor.state1.ss_f > motor.conf1.ss_fend)
+  if ( motor.state.curtime / 1e6 >= (motor.state.ss_tstart + motor.conf.ss_n_aver / motor.state.ss_f )) {
+    motor.state.ss_f += motor.conf.ss_fstep;
+    motor.state.ss_tstart = motor.state.curtime / 1e6;
+    if (motor.state.ss_f > motor.conf.ss_fend)
     {
-      motor.state1.ss_f = 0;
-      motor.state1.ss_phase = 0;
-      motor.state1.ss_tstart = 1e8;
+      motor.state.ss_f = 0;
+      motor.state.ss_phase = 0;
+      motor.state.ss_tstart = 1e8;
       motor.conf1.ss_gain = 0;
       motor.conf1.ss_offset = 0;
+      motor.conf2.ss_gain = 0;
+      motor.conf2.ss_offset = 0;
     }
   }
-  motor.state1.ss_phase += motor.state1.ss_f * 2 * M_PI * motor.conf.T;
-  if ( motor.state1.ss_phase >= 2 * M_PI) {
-    motor.state1.ss_phase -= 2 * M_PI; //Required, because high value floats are inaccurate
+  motor.state.ss_phase += motor.state.ss_f * 2 * M_PI * motor.conf.T;
+  if ( motor.state.ss_phase >= 2 * M_PI) {
+    motor.state.ss_phase -= 2 * M_PI; //Required, because high value floats are inaccurate
   }
-  float ss_offset_lp = lowpass_ss_offset->process( motor.conf1.ss_offset );
-  //motor.state1.ss_out = ss_offset_lp + motor.conf1.ss_gain * arm_sin_f32( motor.state1.ss_phase ); //sin() measured to be faster then sinf(); arm_sin_f32() is way faster!
-  motor.state1.ss_out = ss_offset_lp + motor.conf1.ss_gain * sin( motor.state1.ss_phase );
-  motor.state1.dist = motor.state1.distval * 1 * (motor.state1.noisebit - 0.5) + motor.state1.distoff + motor.state1.ss_out;
+  float ss_offset_lp1 = lowpass_ss_offset->process( motor.conf1.ss_offset );
+  float ss_offset_lp2 = lowpass_ss_offset->process( motor.conf2.ss_offset );
+  //motor.state.ss_out = ss_offset_lp + motor.conf1.ss_gain * arm_sin_f32( motor.state.ss_phase ); //sin() measured to be faster then sinf(); arm_sin_f32() is way faster!
+  float sin_phase = sin( motor.state.ss_phase );
+  motor.state1.ss_out = ss_offset_lp1 + motor.conf1.ss_gain * sin_phase;
+  motor.state2.ss_out = ss_offset_lp2 + motor.conf2.ss_gain * sin_phase;
+  motor.state1.dist = motor.state1.distval * 1 * (motor.state.noisebit - 0.5) + motor.state1.distoff + motor.state1.ss_out;
+  motor.state2.dist = motor.state2.distval * 1 * (motor.state.noisebit - 0.5) + motor.state2.distoff + motor.state2.ss_out;
 }
 
 
-void GenSetpoint() {
-  SPprofile->REFidir = motor.setpoint.SPdir;
-  SPprofile->rdelay = motor.state1.rdelay;
+void GenSetpoint( mot_conf_t* confX , mot_state_t* stateX , MotionProfile* SPprofileX ) {
+  SPprofileX->REFidir = stateX->SPdir;
+  SPprofileX->rdelay = stateX->rdelay;
 
-  if (SPprofile->REFstatus != 1) { // if not running SP
-    SPprofile->REFstatus = 0; //Make sure sp generator is ready for sp generation
-    if (motor.setpoint.spNgo > 0) {
-      motor.state1.spGO = 1;
-      motor.setpoint.spNgo -= 1;
+  if (SPprofileX->REFstatus != 1) { // if not running SP
+    SPprofileX->REFstatus = 0; //Make sure sp generator is ready for sp generation
+    if (stateX->spNgo > 0) {
+      stateX->spGO = 1;
+      stateX->spNgo -= 1;
     }
     else {
-      motor.state1.spGO = 0;
+      stateX->spGO = 0;
     }
   }
-  motor.state1.REFstatus = SPprofile->REFstatus;
-  motor.state1.rmech = SPprofile->stateCalculation( motor.state1.spGO );
+  stateX->REFstatus = SPprofileX->REFstatus;
+  stateX->rmech = SPprofileX->stateCalculation( stateX->spGO );
 
-  motor.state1.offsetVel_lp = lowpassSP->process( motor.state1.offsetVel );
-  motor.state1.offsetVelTot += motor.state1.offsetVel_lp * motor.conf.T;
-  motor.state1.rmech += motor.state1.offsetVelTot ;
+  stateX->offsetVel_lp = lowpassSP->process( stateX->offsetVel );
+  stateX->offsetVelTot += stateX->offsetVel_lp * motor.conf.T;
+  stateX->rmech += stateX->offsetVelTot ;
 
-  motor.state2.rmech = -motor.state1.rmech;
-  motor.state1.rmech += motor.state1.rmechoffset;
-  motor.state2.rmech += motor.state2.rmechoffset;
+  stateX->rmech += stateX->rmechoffset;
 
-  motor.state1.acc = SPprofile->aref;
-  motor.state1.vel = SPprofile->vref + motor.state1.offsetVelTot;
-  motor.state1.we = motor.state1.vel * motor.conf1.N_pp;  //Electrical speed [rad/s], based on setpoint
-
-  motor.state2.acc = -motor.state1.acc;
-  motor.state2.vel = -motor.state1.vel;
-  motor.state2.we  = motor.state2.vel * motor.conf2.N_pp;  //Electrical speed [rad/s], based on setpoint
+  stateX->acc = SPprofileX->aref;
+  stateX->vel = SPprofileX->vref + stateX->offsetVelTot;
+  stateX->we = stateX->vel * confX->N_pp;  //Electrical speed [rad/s], based on setpoint
 
   //When no setpoint is running, always convert reference to nearest encoder count to avoid noise
-  if (SPprofile->REFstatus == 0 && motor.state1.offsetVel_lp == 0) {
-    motor.state1.rmech = int((motor.state1.rmech / motor.conf1.enc2rad)) * motor.conf1.enc2rad;
+  if (SPprofileX->REFstatus == 0 && stateX->offsetVel_lp == 0) {
+    stateX->rmech = int((stateX->rmech / confX->enc2rad)) * confX->enc2rad;
   }
-  if (SPprofile->REFstatus == 0 && motor.state1.offsetVel_lp == 0) { //Note: refers to state1.
-    motor.state2.rmech = int((motor.state2.rmech / motor.conf2.enc2rad)) * motor.conf2.enc2rad;
-  }
-   motor.state1.rmech += motor.state1.dist * motor.state1.rdistgain;
+
+  stateX->rmech += stateX->dist * stateX->rdistgain;
 }
 
 void readENC() {
-  motor.state1.encoderPos1 = Encoder1.read();
-  motor.state1.encoderPos2 = Encoder2.read();
-  motor.state1.IndexFound1 = Encoder1.indexfound();
-  motor.state1.IndexFound2 = Encoder2.indexfound();
+  // Linking between encoders and axes to be improved
+  motor.state.encoderPos1 = Encoder1.read();
+  motor.state.encoderPos2 = Encoder2.read();
+  motor.state.IndexFound1 = Encoder1.indexfound();
+  motor.state.IndexFound2 = Encoder2.indexfound();
 
-  //Hack
-  //  motor.state1.encoderPos2 = Encoder1.read();
-  //  motor.state1.encoderPos1 = Encoder2.read();
-  //  motor.state1.IndexFound2 = Encoder1.indexfound();
-  //  motor.state1.IndexFound1 = Encoder2.indexfound();
+  motor.state1.encoderPos1 = motor.state.encoderPos1;
+  motor.state1.IndexFound1 = motor.state.IndexFound1;
+
+  motor.state2.encoderPos1 = motor.state.encoderPos2;
+  motor.state2.IndexFound1 = motor.state.IndexFound2;
 }
 
-void Control() {
-  motor.state1.ymech = motor.state1.encoderPos1 * motor.conf1.enc2rad * motor.conf1.enc_transmission;
-  motor.state2.ymech = motor.state1.encoderPos2 * motor.conf2.enc2rad * motor.conf2.enc_transmission;
-  
-  if (motor.hfi1.hfi_useforfeedback == 1) {
-    motor.state1.ymech = motor.hfi1.hfi_abs_pos / motor.conf1.N_pp;
-  }
-  motor.state1.emech = motor.state1.rmech - motor.state1.ymech;
-  motor.state2.emech = motor.state2.rmech - motor.state2.ymech;
-  if (motor.conf1.haptic == 1) {
-    motor.state1.emech = motor.state1.rmech - motor.state1.ymech - motor.state2.ymech;
-    motor.state2.emech = 0;
-  }
+void Control( mot_conf_t* confX , mot_state_t* stateX ) {
+  stateX->ymech = stateX->encoderPos1 * confX->enc2rad * confX->enc_transmission;
 
-  if ((abs(motor.state1.emech) > motor.conf1.maxerror) & (motor.conf1.Kp > 0) )
+  if (stateX->hfi_useforfeedback == 1) {
+    stateX->ymech = stateX->hfi_abs_pos / confX->N_pp;
+  }
+  stateX->emech = stateX->rmech - stateX->ymech;
+
+  if ((abs(stateX->emech) > confX->maxerror) & (confX->Kp > 0) )
   {
-    motor.state1.OutputOn = false;
-    if (motor.state.firsterror == 0) {
-      motor.state.firsterror = 1;
-    }
+    error(1 , stateX);
   }
-  if (motor.state1.OutputOn == false) {
-    motor.state1.emech = 0;
-    motor.state1.Ki_sum = 0;
-  }
-  if (motor.state1.OutputOn == false) {
-    motor.state2.emech = 0;
-    motor.state2.Ki_sum = 0;
-    
-  }
-  if (motor.conf1.Kp == 0) {
-    motor.state1.Ki_sum = 0;
-  }
-  if (motor.conf2.Kp == 0) {
-    motor.state2.Ki_sum = 0;
+  if (stateX->OutputOn == false) {
+    stateX->emech = 0;
+    stateX->Ki_sum = 0;
   }
 
-  motor.state1.Kp_out = motor.conf1.Kp * motor.state1.emech;
-
-  motor.state1.Kd_out = motor.conf1.Kd * (motor.state1.Kp_out - motor.state1.Kp_out_prev) + motor.state1.Kp_out;
-  motor.state1.Kp_out_prev = motor.state1.Kp_out;
-
-  motor.state1.Ki_sum += motor.conf1.Ki * motor.state1.Kd_out;
-  truncate_number_abs(&motor.state1.Ki_sum, motor.conf1.T_max);
-
-  motor.state1.Ki_out = motor.state1.Ki_sum + motor.state1.Kd_out;
-
-  LOWPASS( motor.state1.lp_out, motor.state1.Ki_out, motor.conf1.lowpass_c);
-
-  motor.state1.mechcontout = motor.state1.lp_out + motor.state1.dist * motor.state1.mechdistgain;
-
-  if (motor.state1.OutputOn) {
-    motor.state1.mechcontout += motor.state1.acc * motor.state1.Jload;
-    motor.state1.mechcontout += motor.state1.vel * motor.state1.velFF;
+  if (confX->Kp == 0) {
+    stateX->Ki_sum = 0;
   }
 
-  if (motor.state1.OutputOn == false) {
-    motor.state1.vq_int_state = 0;
-    motor.state1.vd_int_state = 0;
-    motor.state2.vq_int_state = 0;
-    motor.state2.vd_int_state = 0;
+  stateX->Kp_out = confX->Kp * stateX->emech;
+
+  stateX->Kd_out = confX->Kd * (stateX->Kp_out - stateX->Kp_out_prev) + stateX->Kp_out;
+  stateX->Kp_out_prev = stateX->Kp_out;
+
+  stateX->Ki_sum += confX->Ki * stateX->Kd_out;
+  truncate_number_abs(&stateX->Ki_sum, confX->T_max);
+
+  stateX->Ki_out = stateX->Ki_sum + stateX->Kd_out;
+
+  LOWPASS( stateX->lp_out, stateX->Ki_out, confX->lowpass_c);
+
+  stateX->mechcontout = stateX->lp_out + stateX->dist * stateX->mechdistgain;
+
+  if (stateX->OutputOn) {
+    stateX->mechcontout += stateX->acc * stateX->Jload;
+    stateX->mechcontout += stateX->vel * stateX->velFF;
+    stateX->vq_int_state = 0;
+    stateX->vd_int_state = 0;
   }
 
-  motor.state1.Iq_SP = motor.state1.mechcontout / (1.5 * motor.conf1.N_pp * motor.conf1.Lambda_m );
-  motor.state2.Iq_SP = motor.state2.mechcontout / (1.5 * motor.conf2.N_pp * motor.conf2.Lambda_m );
+  stateX->Iq_SP = stateX->mechcontout / (1.5 * confX->N_pp * confX->Lambda_m );
 }
 
-void Transforms()
+void Transforms( mot_conf_t* confX , mot_state_t* stateX )
 {
-  // Calculate currents
-  if (motor.conf.useIlowpass == 1)
-  {
-    motor.state1.ia = motor.conf1.adc2A * (motor.state.sens1_lp - motor.state.sens1_calib);
-    motor.state1.ib = motor.conf1.adc2A * (motor.state.sens2_lp - motor.state.sens2_calib);
-    motor.state2.ia = motor.conf2.adc2A * (motor.state.sens3_lp - motor.state.sens3_calib);
-    motor.state2.ib = motor.conf2.adc2A * (motor.state.sens4_lp - motor.state.sens4_calib);
-  }
-  else {
-    motor.state1.ia = motor.conf1.adc2A * (motor.state.sens1 - motor.state.sens1_calib);
-    motor.state1.ib = motor.conf1.adc2A * (motor.state.sens2 - motor.state.sens2_calib);
-    motor.state2.ia = motor.conf2.adc2A * (motor.state.sens3 - motor.state.sens3_calib);
-    motor.state2.ib = motor.conf2.adc2A * (motor.state.sens4 - motor.state.sens4_calib);
-  }
-  motor.state1.ic = -motor.state1.ia - motor.state1.ib;
-  motor.state2.ic = -motor.state2.ia - motor.state2.ib;
-
-  //HACK
-  //  motor.state1.ia = motor.state2.ia;
-  //  motor.state1.ib = motor.state2.ib;
-  //  motor.state1.ic = motor.state2.ic;
-
-  // For Park and Clarke see https://www.cypress.com/file/222111/download
-  // Power-variant Clarke transform. Asuming ia+ib+ic=0:
-  motor.state1.Ialpha = motor.state1.ia;
-  motor.state1.Ibeta = ONE_BY_SQRT3 * motor.state1.ia + TWO_BY_SQRT3 * motor.state1.ib;
-
-  //  motor.state2.Ialpha = motor.state2.ia;
-  //  motor.state2.Ibeta = ONE_BY_SQRT3 * motor.state2.ia + TWO_BY_SQRT3 * motor.state2.ib;
+  // For Park and Clarke see https://www.cypress.com/file/222111/download Power-variant Clarke transform. Asuming ia+ib+ic=0:
+  stateX->Ialpha = stateX->ia;
+  stateX->Ibeta = ONE_BY_SQRT3 * stateX->ia + TWO_BY_SQRT3 * stateX->ib;
 
   // Park transform, ride the wave option
-  motor.state1.thetaPark_enc = motor.conf1.N_pp * (motor.state1.encoderPos1 % motor.conf1.enccountperrev) * motor.conf1.enc2rad + motor.conf1.commutationoffset; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
-  if (motor.conf1.reversecommutation) {
-    motor.state1.thetaPark_enc *= -1;
+  stateX->thetaPark_enc = confX->N_pp * (stateX->encoderPos1 % confX->enccountperrev) * confX->enc2rad + confX->commutationoffset; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
+  if (confX->reversecommutation) {
+    stateX->thetaPark_enc *= -1;
   }
-  while ( motor.state1.thetaPark_enc >= 2 * M_PI) {
-    motor.state1.thetaPark_enc -= 2 * M_PI;
+  while ( stateX->thetaPark_enc >= 2 * M_PI) {
+    stateX->thetaPark_enc -= 2 * M_PI;
   }
-  while ( motor.state1.thetaPark_enc < 0) {
-    motor.state1.thetaPark_enc += 2 * M_PI;
+  while ( stateX->thetaPark_enc < 0) {
+    stateX->thetaPark_enc += 2 * M_PI;
   }
 
   //Angle observer by mxlemming
-  float L = (motor.conf1.Ld + motor.conf1.Lq) / 2;
-  motor.state1.BEMFa = motor.state1.BEMFa + (motor.state1.Valpha - motor.state1.R * motor.state1.Ialpha) * motor.conf.T -
-                       L * (motor.state1.Ialpha - motor.state1.Ialpha_last);
-  motor.state1.BEMFb = motor.state1.BEMFb + (motor.state1.Vbeta - motor.state1.R * motor.state1.Ibeta) * motor.conf.T -
-                       L * (motor.state1.Ibeta - motor.state1.Ibeta_last)  ;
-  motor.state1.Ialpha_last = motor.state1.Ialpha;
-  motor.state1.Ibeta_last = motor.state1.Ibeta;
-  if (motor.state1.BEMFa > motor.conf1.Lambda_m  ) {
-    motor.state1.BEMFa = motor.conf1.Lambda_m ;
+  float L = (confX->Ld + confX->Lq) / 2;
+  stateX->BEMFa = stateX->BEMFa + (stateX->Valpha - stateX->R * stateX->Ialpha) * motor.conf.T -
+                       L * (stateX->Ialpha - stateX->Ialpha_last);
+  stateX->BEMFb = stateX->BEMFb + (stateX->Vbeta - stateX->R * stateX->Ibeta) * motor.conf.T -
+                       L * (stateX->Ibeta - stateX->Ibeta_last)  ;
+  stateX->Ialpha_last = stateX->Ialpha;
+  stateX->Ibeta_last = stateX->Ibeta;
+  if (stateX->BEMFa > confX->Lambda_m  ) {
+    stateX->BEMFa = confX->Lambda_m ;
   }
-  if (motor.state1.BEMFa < -motor.conf1.Lambda_m ) {
-    motor.state1.BEMFa = -motor.conf1.Lambda_m ;
+  if (stateX->BEMFa < -confX->Lambda_m ) {
+    stateX->BEMFa = -confX->Lambda_m ;
   }
-  if (motor.state1.BEMFb > motor.conf1.Lambda_m ) {
-    motor.state1.BEMFb = motor.conf1.Lambda_m ;
+  if (stateX->BEMFb > confX->Lambda_m ) {
+    stateX->BEMFb = confX->Lambda_m ;
   }
-  if (motor.state1.BEMFb < -motor.conf1.Lambda_m ) {
-    motor.state1.BEMFb = -motor.conf1.Lambda_m ;
+  if (stateX->BEMFb < -confX->Lambda_m ) {
+    stateX->BEMFb = -confX->Lambda_m ;
   }
-  motor.state1.thetaPark_obs = atan2(motor.state1.BEMFb, motor.state1.BEMFa);
+  stateX->thetaPark_obs = atan2(stateX->BEMFb, stateX->BEMFa);
 
-  while ( motor.state1.thetaPark_obs >= 2 * M_PI) {
-    motor.state1.thetaPark_obs -= 2 * M_PI;
+  while ( stateX->thetaPark_obs >= 2 * M_PI) {
+    stateX->thetaPark_obs -= 2 * M_PI;
   }
-  while ( motor.state1.thetaPark_obs < 0) {
-    motor.state1.thetaPark_obs += 2 * M_PI;
+  while ( stateX->thetaPark_obs < 0) {
+    stateX->thetaPark_obs += 2 * M_PI;
   }
   //Check and remove nan
-  if (motor.state1.thetaPark_obs != motor.state1.thetaPark_obs) {
-    motor.state1.thetaPark_obs = motor.state1.thetaPark_obs_prev;
+  if (stateX->thetaPark_obs != stateX->thetaPark_obs) {
+    stateX->thetaPark_obs = stateX->thetaPark_obs_prev;
   }
-  motor.state1.thetaPark_obs_prev = motor.state1.thetaPark_obs;
+  stateX->thetaPark_obs_prev = stateX->thetaPark_obs;
 
 
-  if (motor.conf1.anglechoice == 0) {
-    motor.state1.thetaPark = motor.state1.thetaPark_enc;
+  if (confX->anglechoice == 0) {
+    stateX->thetaPark = stateX->thetaPark_enc;
   }
-  else if (motor.conf1.anglechoice == 1) {
-    motor.state1.thetaPark = motor.state1.thetaPark_obs;
+  else if (confX->anglechoice == 1) {
+    stateX->thetaPark = stateX->thetaPark_obs;
   }
-  else if (motor.conf1.anglechoice == 3 ) {
-    if ( abs(motor.state1.vel) < motor.hfi1.hfi_maxvel ) {
-      motor.hfi1.hfi_on = true;
-      motor.state1.thetaPark = motor.hfi1.hfi_dir;
+  else if (confX->anglechoice == 3 ) {
+    if ( abs(stateX->vel) < stateX->hfi_maxvel ) {
+      stateX->hfi_on = true;
+      stateX->thetaPark = stateX->hfi_dir;
     }
     else {
-      motor.hfi1.hfi_on = false;
-      motor.state1.thetaPark = motor.state1.thetaPark_obs;
+      stateX->hfi_on = false;
+      stateX->thetaPark = stateX->thetaPark_obs;
     }
   }
-  else if (motor.conf1.anglechoice == 99) {
-    utils_step_towards((float*)&motor.state1.i_vector_radpers_act, motor.state1.i_vector_radpers, motor.state1.i_vector_acc * motor.conf.T );
-    motor.state1.thetaPark += motor.conf.T * motor.state1.i_vector_radpers_act;
+  else if (confX->anglechoice == 99) {
+    utils_step_towards((float*)&stateX->i_vector_radpers_act, stateX->i_vector_radpers, stateX->i_vector_acc * motor.conf.T );
+    stateX->thetaPark += motor.conf.T * stateX->i_vector_radpers_act;
   }
-  else if (motor.conf1.anglechoice == 100) {
+  else if (confX->anglechoice == 100) {
     //Empty such that thethaPark can be set from host.
   }
   else {
-    motor.state1.thetaPark = 0;
+    stateX->thetaPark = 0;
   }
 
   // Phase advance
-  motor.state1.thetaPark += motor.state1.eradpers_lp * motor.conf.T * motor.conf1.advancefactor;
+  stateX->thetaPark += stateX->eradpers_lp * motor.conf.T * confX->advancefactor;
 
-  while ( motor.state1.thetaPark >= 2 * M_PI) {
-    motor.state1.thetaPark -= 2 * M_PI;
+  while ( stateX->thetaPark >= 2 * M_PI) {
+    stateX->thetaPark -= 2 * M_PI;
   }
-  while ( motor.state1.thetaPark < 0) {
-    motor.state1.thetaPark += 2 * M_PI;
+  while ( stateX->thetaPark < 0) {
+    stateX->thetaPark += 2 * M_PI;
   }
 
   // erpm estimator
-  motor.state1.edeltarad = motor.state1.thetaPark - motor.state1.thetaParkPrev;
-  if (motor.state1.edeltarad > M_PI) {
-    motor.state1.edeltarad -= 2 * M_PI;
+  stateX->edeltarad = stateX->thetaPark - stateX->thetaParkPrev;
+  if (stateX->edeltarad > M_PI) {
+    stateX->edeltarad -= 2 * M_PI;
   }
-  if (motor.state1.edeltarad < -M_PI) {
-    motor.state1.edeltarad += 2 * M_PI;
+  if (stateX->edeltarad < -M_PI) {
+    stateX->edeltarad += 2 * M_PI;
   }
-  //Limit change of motor.state1.thetaPark to 45 deg per cycle:
-  if (motor.state1.edeltarad > motor.conf1.max_edeltarad) {
-    motor.state1.edeltarad = motor.conf1.max_edeltarad;
-    motor.state1.thetaPark = motor.state1.thetaParkPrev + motor.state1.edeltarad;
+  //Limit change of stateX->thetaPark to 45 deg per cycle:
+  if (stateX->edeltarad > confX->max_edeltarad) {
+    stateX->edeltarad = confX->max_edeltarad;
+    stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
   }
-  else if (motor.state1.edeltarad < -motor.conf1.max_edeltarad) {
-    motor.state1.edeltarad = -motor.conf1.max_edeltarad;
-    motor.state1.thetaPark = motor.state1.thetaParkPrev + motor.state1.edeltarad;
+  else if (stateX->edeltarad < -confX->max_edeltarad) {
+    stateX->edeltarad = -confX->max_edeltarad;
+    stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
   }
-  motor.state1.eradpers_lp = lowpass_eradpers->process( motor.state1.edeltarad / motor.conf.T );
-  motor.state1.erpm = motor.state1.eradpers_lp * 60 / (2 * M_PI);
-  motor.state1.thetaParkPrev = motor.state1.thetaPark;
-  motor.hfi1.hfi_abs_pos += motor.state1.edeltarad;
+  stateX->eradpers_lp = lowpass_eradpers->process( stateX->edeltarad / motor.conf.T );
+  stateX->erpm = stateX->eradpers_lp * 60 / (2 * M_PI);
+  stateX->thetaParkPrev = stateX->thetaPark;
+  stateX->hfi_abs_pos += stateX->edeltarad;
 
-  //  thetaPark2 = 8 * (motor.state1.encoderPos2 % enccountperrev2) * motor.conf2.enc2rad + commutationoffset2; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
-  //  while ( thetaPark2 >= 2 * M_PI) {
-  //    thetaPark2 -= 2 * M_PI;
-  //  }
-  //  while ( thetaPark2 < 0) {
-  //    thetaPark2 += 2 * M_PI;
-  //  }
-
-  if (motor.conf1.ridethewave == 1 ) {
-    if ((motor.state1.IndexFound1) < 1 ) {
-      motor.state1.thetaPark = motor.state1.thetawave;
-      motor.state1.thetawave -= 10 * 2 * M_PI * motor.conf.T;
-      motor.state1.Vq = 1.5;
+  if (confX->ridethewave == 1 ) {
+    if ((stateX->IndexFound1) < 1 ) {
+      stateX->thetaPark = stateX->thetawave;
+      stateX->thetawave -= 10 * 2 * M_PI * motor.conf.T;
+      stateX->Vq = 1.5;
     }
     else {
-      motor.state1.Vq = 0;
-      motor.conf1.ridethewave = 2;
-      motor.state1.thetawave = 0;
+      stateX->Vq = 0;
+      confX->ridethewave = 2;
+      stateX->thetawave = 0;
     }
   }
 
+  stateX->Iq_SP += stateX->muziek_gain * muziek[ (motor.state.curloop / (50 / (int)motor.conf.Ts)) % (sizeof(muziek) / 4) ];
+  stateX->Iq_SP += stateX->dist * stateX->Iq_distgain;
 
-  motor.state1.Iq_SP += motor.state1.muziek_gain * muziek[ (motor.state.curloop / (50 / (int)motor.conf.Ts)) % (sizeof(muziek) / 4) ];
-  motor.state1.Iq_SP += motor.state1.dist * motor.state1.Iq_distgain;
+  stateX->Iq_SP += stateX->Iq_offset_SP;
 
-  motor.state1.Iq_SP += motor.state1.Iq_offset_SP;
+  stateX->Id_SP = stateX->Id_offset_SP;
+  stateX->Id_SP += stateX->dist * stateX->Id_distgain;
 
-  motor.state1.Id_SP = motor.state1.Id_offset_SP;
-  motor.state1.Id_SP += motor.state1.dist * motor.state1.Id_distgain;
-
-  motor.state1.co = cos(motor.state1.thetaPark);
-  motor.state1.si = sin(motor.state1.thetaPark);
+  stateX->co = cos(stateX->thetaPark);
+  stateX->si = sin(stateX->thetaPark);
 
 
   // Park transform
-  motor.state1.Id_meas = motor.state1.co * motor.state1.Ialpha + motor.state1.si * motor.state1.Ibeta;
-  motor.state1.Iq_meas = motor.state1.co * motor.state1.Ibeta  - motor.state1.si * motor.state1.Ialpha;
+  stateX->Id_meas = stateX->co * stateX->Ialpha + stateX->si * stateX->Ibeta;
+  stateX->Iq_meas = stateX->co * stateX->Ibeta  - stateX->si * stateX->Ialpha;
 
-  motor.state1.Id_meas_lp = lowpassId1->process( motor.state1.Id_meas );
-  motor.state1.Iq_meas_lp = lowpassIq1->process( motor.state1.Iq_meas );
+  stateX->Id_meas_lp = lowpassId1->process( stateX->Id_meas );
+  stateX->Iq_meas_lp = lowpassIq1->process( stateX->Iq_meas );
 
-  motor.state1.P_tot = 1.5 * ( motor.state1.Vq * motor.state1.Iq_meas_lp + motor.state1.Vd * motor.state1.Id_meas_lp);
-  motor.state1.I_bus = motor.state1.P_tot / motor.state.sensBus_lp;
+  stateX->P_tot = 1.5 * ( stateX->Vq * stateX->Iq_meas_lp + stateX->Vd * stateX->Id_meas_lp);
+  stateX->I_bus = stateX->P_tot / motor.state.sensBus_lp;
 
   // HFI
-  if ( motor.hfi1.hfi_on ) {
-    motor.hfi1.hfi_V_act = motor.hfi1.hfi_V;
-    if (motor.hfi1.hfi_firstcycle) {
-      motor.hfi1.hfi_V_act /= 2;
-      motor.hfi1.hfi_firstcycle = false;
+  if ( stateX->hfi_on ) {
+    stateX->hfi_V_act = stateX->hfi_V;
+    if (stateX->hfi_firstcycle) {
+      stateX->hfi_V_act /= 2;
+      stateX->hfi_firstcycle = false;
     }
-    if (motor.hfi1.hfi_V != motor.hfi1.hfi_prev) {
-      motor.hfi1.hfi_V_act = motor.hfi1.hfi_prev + (motor.hfi1.hfi_V - motor.hfi1.hfi_prev) / 2;
+    if (stateX->hfi_V != stateX->hfi_prev) {
+      stateX->hfi_V_act = stateX->hfi_prev + (stateX->hfi_V - stateX->hfi_prev) / 2;
     }
     if (motor.state.is_v7) {
-      motor.hfi1.hfi_Id_meas_high = motor.state1.Id_meas;
-      motor.hfi1.hfi_Iq_meas_high = motor.state1.Iq_meas;
+      stateX->hfi_Id_meas_high = stateX->Id_meas;
+      stateX->hfi_Iq_meas_high = stateX->Iq_meas;
     }
     else {
-      motor.hfi1.hfi_V_act = -motor.hfi1.hfi_V_act;
-      motor.hfi1.hfi_Id_meas_low = motor.state1.Id_meas;
-      motor.hfi1.hfi_Iq_meas_low = motor.state1.Iq_meas;
+      stateX->hfi_V_act = -stateX->hfi_V_act;
+      stateX->hfi_Id_meas_low = stateX->Id_meas;
+      stateX->hfi_Iq_meas_low = stateX->Iq_meas;
     }
-    motor.hfi1.delta_id = motor.hfi1.hfi_Id_meas_high - motor.hfi1.hfi_Id_meas_low;
-    motor.hfi1.delta_iq = motor.hfi1.hfi_Iq_meas_high - motor.hfi1.hfi_Iq_meas_low;
+    stateX->delta_id = stateX->hfi_Id_meas_high - stateX->hfi_Id_meas_low;
+    stateX->delta_iq = stateX->hfi_Iq_meas_high - stateX->hfi_Iq_meas_low;
 
-    if ( motor.hfi1.diq_compensation_on) {
-      //motor.hfi1.delta_iq -= motor.hfi1.diq_compensation[ int(motor.state1.thetaPark * 180 / 2 / M_PI) ]; //Note: not adjusted yet for changing hfi_V
-      motor.hfi1.compensation = motor.hfi1.diq_compensation[ int(motor.state1.thetaPark * 360 / 2 / M_PI) ];
+    if ( stateX->diq_compensation_on) {
+      //stateX->delta_iq -= stateX->diq_compensation[ int(stateX->thetaPark * 180 / 2 / M_PI) ]; //Note: not adjusted yet for changing hfi_V
+      stateX->compensation = stateX->diq_compensation[ int(stateX->thetaPark * 360 / 2 / M_PI) ];
     }
     else {
-      motor.hfi1.compensation = 0;
+      stateX->compensation = 0;
     }
 
-    //motor.hfi1.hfi_curangleest = 0.25f * atan2( -motor.hfi1.delta_iq  , motor.hfi1.delta_id - 0.5 * motor.hfi1.hfi_V * motor.conf.T * ( 1 / Ld + 1 / Lq ) ); //Complete calculation (not needed because error is always small due to feedback). 0.25 comes from 0.5 because delta signals are used and 0.5 due to 2theta (not just theta) being in the sin and cos wave.
-    if (motor.hfi1.hfi_method == 1 || motor.hfi1.hfi_method == 3 ) {
-      motor.hfi1.hfi_curangleest =  0.5f * motor.hfi1.delta_iq / (motor.hfi1.hfi_V * motor.conf.T * ( 1 / motor.conf1.Lq - 1 / motor.conf1.Ld ) ); //0.5 because delta_iq is twice the iq value
+    //stateX->hfi_curangleest = 0.25f * atan2( -stateX->delta_iq  , stateX->delta_id - 0.5 * stateX->hfi_V * motor.conf.T * ( 1 / Ld + 1 / Lq ) ); //Complete calculation (not needed because error is always small due to feedback). 0.25 comes from 0.5 because delta signals are used and 0.5 due to 2theta (not just theta) being in the sin and cos wave.
+    if (stateX->hfi_method == 1 || stateX->hfi_method == 3 ) {
+      stateX->hfi_curangleest =  0.5f * stateX->delta_iq / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq - 1 / confX->Ld ) ); //0.5 because delta_iq is twice the iq value
     }
-    else if (motor.hfi1.hfi_method == 2 || motor.hfi1.hfi_method == 4) {
+    else if (stateX->hfi_method == 2 || stateX->hfi_method == 4) {
       if (motor.state.is_v7) {
-        motor.hfi1.hfi_curangleest =  (motor.state1.Iq_meas - motor.state1.Iq_SP) / (motor.hfi1.hfi_V * motor.conf.T * ( 1 / motor.conf1.Lq - 1 / motor.conf1.Ld ) );
+        stateX->hfi_curangleest =  (stateX->Iq_meas - stateX->Iq_SP) / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq - 1 / confX->Ld ) );
       }
       else {
-        motor.hfi1.hfi_curangleest =  (motor.state1.Iq_meas - motor.state1.Iq_SP) / (-motor.hfi1.hfi_V * motor.conf.T * ( 1 / motor.conf1.Lq - 1 / motor.conf1.Ld ) );
+        stateX->hfi_curangleest =  (stateX->Iq_meas - stateX->Iq_SP) / (-stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq - 1 / confX->Ld ) );
       }
     }
-    motor.hfi1.hfi_error = -motor.hfi1.hfi_curangleest; //Negative feedback
-    if (motor.hfi1.hfi_use_lowpass) {
-      motor.hfi1.hfi_error = hfi_lowpass->process( motor.hfi1.hfi_error );
+    stateX->hfi_error = -stateX->hfi_curangleest; //Negative feedback
+    if (stateX->hfi_use_lowpass) {
+      stateX->hfi_error = hfi_lowpass->process( stateX->hfi_error );
     }
-    motor.hfi1.hfi_dir_int += motor.conf.T * motor.hfi1.hfi_error * motor.hfi1.hfi_gain_int2; //This the the double integrator
+    stateX->hfi_dir_int += motor.conf.T * stateX->hfi_error * stateX->hfi_gain_int2; //This the the double integrator
 
-    motor.hfi1.hfi_contout += motor.hfi1.hfi_gain * motor.conf.T * motor.hfi1.hfi_error + motor.hfi1.hfi_dir_int; //This is the integrator and the double integrator
-    if (motor.hfi1.hfi_method == 3 || motor.hfi1.hfi_method == 4) {
-      motor.hfi1.hfi_ffw = motor.state1.we * motor.conf.T;
-      motor.hfi1.hfi_contout += motor.hfi1.hfi_ffw; //This is the feedforward
+    stateX->hfi_contout += stateX->hfi_gain * motor.conf.T * stateX->hfi_error + stateX->hfi_dir_int; //This is the integrator and the double integrator
+    if (stateX->hfi_method == 3 || stateX->hfi_method == 4) {
+      stateX->hfi_ffw = stateX->we * motor.conf.T;
+      stateX->hfi_contout += stateX->hfi_ffw; //This is the feedforward
     }
-    while ( motor.hfi1.hfi_contout >= 2 * M_PI) {
-      motor.hfi1.hfi_contout -= 2 * M_PI;
+    while ( stateX->hfi_contout >= 2 * M_PI) {
+      stateX->hfi_contout -= 2 * M_PI;
     }
-    while ( motor.hfi1.hfi_contout < 0) {
-      motor.hfi1.hfi_contout += 2 * M_PI;
+    while ( stateX->hfi_contout < 0) {
+      stateX->hfi_contout += 2 * M_PI;
     }
-    while ( motor.hfi1.hfi_contout >= 2 * M_PI) {
-      motor.hfi1.hfi_contout -= 2 * M_PI;
+    while ( stateX->hfi_contout >= 2 * M_PI) {
+      stateX->hfi_contout -= 2 * M_PI;
     }
-    while ( motor.hfi1.hfi_contout < 0) {
-      motor.hfi1.hfi_contout += 2 * M_PI;
+    while ( stateX->hfi_contout < 0) {
+      stateX->hfi_contout += 2 * M_PI;
     }
 
-    motor.hfi1.hfi_dir = motor.hfi1.hfi_contout + motor.state1.dist * motor.hfi1.hfi_distgain;
+    stateX->hfi_dir = stateX->hfi_contout + stateX->dist * stateX->hfi_distgain;
 
-    while ( motor.hfi1.hfi_dir >= 2 * M_PI) {
-      motor.hfi1.hfi_dir -= 2 * M_PI;
+    while ( stateX->hfi_dir >= 2 * M_PI) {
+      stateX->hfi_dir -= 2 * M_PI;
     }
-    while ( motor.hfi1.hfi_dir < 0) {
-      motor.hfi1.hfi_dir += 2 * M_PI;
+    while ( stateX->hfi_dir < 0) {
+      stateX->hfi_dir += 2 * M_PI;
     }
-    while ( motor.hfi1.hfi_dir_int >= 2 * M_PI) {
-      motor.hfi1.hfi_dir_int -= 2 * M_PI;
+    while ( stateX->hfi_dir_int >= 2 * M_PI) {
+      stateX->hfi_dir_int -= 2 * M_PI;
     }
-    while ( motor.hfi1.hfi_dir_int < 0) {
-      motor.hfi1.hfi_dir_int += 2 * M_PI;
+    while ( stateX->hfi_dir_int < 0) {
+      stateX->hfi_dir_int += 2 * M_PI;
     }
   }
   else {
-    motor.hfi1.hfi_dir = motor.state1.thetaPark_obs;
-    motor.hfi1.hfi_contout = motor.state1.thetaPark_obs;
-    motor.hfi1.hfi_dir_int = 0;
-    motor.hfi1.hfi_firstcycle = true;
-    motor.hfi1.hfi_Id_meas_low = 0;
-    motor.hfi1.hfi_Iq_meas_low = 0;
-    motor.hfi1.hfi_Id_meas_high = 0;
-    motor.hfi1.hfi_Iq_meas_high = 0;
-    motor.hfi1.hfi_V_act = 0;
+    stateX->hfi_dir = stateX->thetaPark_obs;
+    stateX->hfi_contout = stateX->thetaPark_obs;
+    stateX->hfi_dir_int = 0;
+    stateX->hfi_firstcycle = true;
+    stateX->hfi_Id_meas_low = 0;
+    stateX->hfi_Iq_meas_low = 0;
+    stateX->hfi_Id_meas_high = 0;
+    stateX->hfi_Iq_meas_high = 0;
+    stateX->hfi_V_act = 0;
   }
-  motor.hfi1.hfi_prev = motor.hfi1.hfi_V;
+  stateX->hfi_prev = stateX->hfi_V;
 
-  if (motor.conf1.ridethewave != 1 ) {
-    if (motor.state1.OutputOn == true) {
-      motor.state1.Id_e = motor.state1.Id_SP - motor.state1.Id_meas;
-      motor.state1.Iq_e = motor.state1.Iq_SP - motor.state1.Iq_meas;
+  if (confX->ridethewave != 1 ) {
+    if (stateX->OutputOn == true) {
+      stateX->Id_e = stateX->Id_SP - stateX->Id_meas;
+      stateX->Iq_e = stateX->Iq_SP - stateX->Iq_meas;
     }
     else {
-      motor.state1.Id_e = 0;
-      motor.state1.Iq_e = 0;
+      stateX->Id_e = 0;
+      stateX->Iq_e = 0;
     }
 
-    motor.state1.Vq = motor.conf1.Kp_iq * motor.state1.Iq_e;
-    motor.state1.vq_int_state += motor.conf1.Ki_iq * motor.conf.T * motor.state1.Vq;
-    motor.state1.Vq += motor.state1.vq_int_state;
+    stateX->Vq = confX->Kp_iq * stateX->Iq_e;
+    stateX->vq_int_state += confX->Ki_iq * motor.conf.T * stateX->Vq;
+    stateX->Vq += stateX->vq_int_state;
 
     //Additional Vq
-    motor.state1.Vq += motor.state1.VSP;
-    motor.state1.Vq += motor.state1.dist * motor.state1.Vq_distgain;
-    motor.state1.Vq += motor.hfi1.hfi_V_act * motor.hfi1.compensation;
+    stateX->Vq += stateX->VSP;
+    stateX->Vq += stateX->dist * stateX->Vq_distgain;
+    stateX->Vq += stateX->hfi_V_act * stateX->compensation;
 
-    motor.state1.Vd = motor.conf1.Kp_id * motor.state1.Id_e;
-    motor.state1.vd_int_state += motor.conf1.Ki_id * motor.conf.T * motor.state1.Vd;;
-    motor.state1.Vd += motor.state1.vd_int_state;
+    stateX->Vd = confX->Kp_id * stateX->Id_e;
+    stateX->vd_int_state += confX->Ki_id * motor.conf.T * stateX->Vd;;
+    stateX->Vd += stateX->vd_int_state;
 
     //Additional Vd
-    motor.state1.Vd += motor.state1.dist * motor.state1.Vd_distgain;
-    motor.state1.Vd += motor.hfi1.hfi_V_act;
+    stateX->Vd += stateX->dist * stateX->Vd_distgain;
+    stateX->Vd += stateX->hfi_V_act;
 
     // PMSM decoupling control and BEMF FF
-    motor.state1.VqFF = motor.state1.we * ( motor.conf1.Ld * motor.state1.Id_meas + motor.conf1.Lambda_m);
+    stateX->VqFF = stateX->we * ( confX->Ld * stateX->Id_meas + confX->Lambda_m);
 
     // q axis induction FFW based on setpoint FFW
-    motor.state1.VqFF += SPprofile->jref * motor.state1.Jload * motor.conf1.Lq * motor.conf1.Kt_Nm_Apeak * motor.state1.OutputOn;
+    stateX->VqFF += SPprofile1->jref * stateX->Jload * confX->Lq * confX->Kt_Nm_Apeak * stateX->OutputOn;
 
-    motor.state1.Vq += motor.state1.VqFF;
+    stateX->Vq += stateX->VqFF;
 
-    motor.state1.VdFF = -motor.state1.we * motor.conf1.Lq * motor.state1.Iq_meas;
-    motor.state1.Vd += motor.state1.VdFF;
+    stateX->VdFF = -stateX->we * confX->Lq * stateX->Iq_meas;
+    stateX->Vd += stateX->VdFF;
   }
 
-  motor.state1.Vq += motor.state1.muziek_gain_V * muziek[ (motor.state.curloop / (50 / (int)motor.conf.Ts)) % (sizeof(muziek) / 4) ];
+  stateX->Vq += stateX->muziek_gain_V * muziek[ (motor.state.curloop / (50 / (int)motor.conf.Ts)) % (sizeof(muziek) / 4) ];
 
   // Voltage clipping
-  motor.state1.maxVolt = motor.conf1.maxDutyCycle * motor.state.sensBus_lp * ONE_BY_SQRT3;
-  motor.state1.Vtot = NORM2_f( motor.state1.Vd , motor.state1.Vq );
-  if ( motor.state1.Vtot > motor.state1.maxVolt) {
-    if ( motor.conf1.clipMethod == 0 ) {
-      if ( abs( motor.state1.Vd ) > motor.state1.maxVolt) {
-        if (motor.state1.Vd > 0) {
-          motor.state1.Vd = motor.state1.maxVolt;
+  stateX->maxVolt = confX->maxDutyCycle * motor.state.sensBus_lp * ONE_BY_SQRT3;
+  stateX->Vtot = NORM2_f( stateX->Vd , stateX->Vq );
+  if ( stateX->Vtot > stateX->maxVolt) {
+    if ( confX->clipMethod == 0 ) {
+      if ( abs( stateX->Vd ) > stateX->maxVolt) {
+        if (stateX->Vd > 0) {
+          stateX->Vd = stateX->maxVolt;
         }
         else {
-          motor.state1.Vd = -motor.state1.maxVolt;
+          stateX->Vd = -stateX->maxVolt;
         }
-        if (abs(motor.state1.vd_int_state) > abs(motor.state1.Vd)) {
-          motor.state1.vd_int_state = motor.state1.Vd;
+        if (abs(stateX->vd_int_state) > abs(stateX->Vd)) {
+          stateX->vd_int_state = stateX->Vd;
         }
       }
-      if (sq(motor.state1.Vd) >= sq(motor.state1.maxVolt)) { //Vd cannot be larger than maxvolt, so no issue with sqrt of negative values. Still get nan Vq somehow. Fix:
-        motor.state1.Vq = 0;
+      if (sq(stateX->Vd) >= sq(stateX->maxVolt)) { //Vd cannot be larger than maxvolt, so no issue with sqrt of negative values. Still get nan Vq somehow. Fix:
+        stateX->Vq = 0;
       }
       else {
-        if ( motor.state1.Vq > 0 ) {
-          motor.state1.Vq = sqrt(sq(motor.state1.maxVolt) - sq(motor.state1.Vd)) ;
+        if ( stateX->Vq > 0 ) {
+          stateX->Vq = sqrt(sq(stateX->maxVolt) - sq(stateX->Vd)) ;
         }
         else {
-          motor.state1.Vq = -sqrt(sq(motor.state1.maxVolt) - sq(motor.state1.Vd)) ;
+          stateX->Vq = -sqrt(sq(stateX->maxVolt) - sq(stateX->Vd)) ;
         }
       }
-      if (abs(motor.state1.vq_int_state) > abs(motor.state1.Vq)) {
-        motor.state1.vq_int_state = motor.state1.Vq;
+      if (abs(stateX->vq_int_state) > abs(stateX->Vq)) {
+        stateX->vq_int_state = stateX->Vq;
       }
     }
-    else if ( motor.conf1.clipMethod == 1 ) {
-      motor.state1.Vd *= (motor.state1.maxVolt / motor.state1.Vtot);
-      motor.state1.Vq *= (motor.state1.maxVolt / motor.state1.Vtot);
+    else if ( confX->clipMethod == 1 ) {
+      stateX->Vd *= (stateX->maxVolt / stateX->Vtot);
+      stateX->Vq *= (stateX->maxVolt / stateX->Vtot);
 
-      if (abs(motor.state1.vd_int_state) > abs(motor.state1.Vd)) {
-        motor.state1.vd_int_state = motor.state1.Vd;
+      if (abs(stateX->vd_int_state) > abs(stateX->Vd)) {
+        stateX->vd_int_state = stateX->Vd;
       }
-      if (abs(motor.state1.vq_int_state) > abs(motor.state1.Vq)) {
-        motor.state1.vq_int_state = motor.state1.Vq;
+      if (abs(stateX->vq_int_state) > abs(stateX->Vq)) {
+        stateX->vq_int_state = stateX->Vq;
       }
     }
   }
-
-
-
-
 
   // Inverse park transform
-  motor.state1.Valpha = motor.state1.co * motor.state1.Vd - motor.state1.si * motor.state1.Vq;
-  motor.state1.Vbeta  = motor.state1.co * motor.state1.Vq + motor.state1.si * motor.state1.Vd;
+  stateX->Valpha = stateX->co * stateX->Vd - stateX->si * stateX->Vq;
+  stateX->Vbeta  = stateX->co * stateX->Vq + stateX->si * stateX->Vd;
 
-  motor.state1.Valpha += motor.state1.Valpha_offset;
-  motor.state1.Vbeta += motor.state1.Vbeta_offset;
+  stateX->Valpha += stateX->Valpha_offset;
+  stateX->Vbeta += stateX->Vbeta_offset;
 
-  if (motor.state1.Valpha > motor.state1.maxVolt) {
-    motor.state1.Valpha = motor.state1.maxVolt;
+  if (stateX->Valpha > stateX->maxVolt) {
+    stateX->Valpha = stateX->maxVolt;
   }
-  if (motor.state1.Vbeta > motor.state1.maxVolt) {
-    motor.state1.Vbeta = motor.state1.maxVolt;
+  if (stateX->Vbeta > stateX->maxVolt) {
+    stateX->Vbeta = stateX->maxVolt;
   }
-  if (motor.state1.Valpha < -motor.state1.maxVolt) {
-    motor.state1.Valpha = -motor.state1.maxVolt;
+  if (stateX->Valpha < -stateX->maxVolt) {
+    stateX->Valpha = -stateX->maxVolt;
   }
-  if (motor.state1.Vbeta < -motor.state1.maxVolt) {
-    motor.state1.Vbeta = -motor.state1.maxVolt;
+  if (stateX->Vbeta < -stateX->maxVolt) {
+    stateX->Vbeta = -stateX->maxVolt;
   }
 
   // Inverse Power-variant Clarke transform
-  motor.state1.Va = motor.state1.Valpha;
-  motor.state1.Vb = -0.5 * motor.state1.Valpha + SQRT3_by_2 * motor.state1.Vbeta;
-  motor.state1.Vc = -0.5 * motor.state1.Valpha - SQRT3_by_2 * motor.state1.Vbeta;
+  stateX->Va = stateX->Valpha;
+  stateX->Vb = -0.5 * stateX->Valpha + SQRT3_by_2 * stateX->Vbeta;
+  stateX->Vc = -0.5 * stateX->Valpha - SQRT3_by_2 * stateX->Vbeta;
 
   //See https://microchipdeveloper.com/mct5001:start Zero Sequence Modulation Tutorial
-  float Vcm = -(max(max(motor.state1.Va, motor.state1.Vb), motor.state1.Vc) + min(min(motor.state1.Va, motor.state1.Vb), motor.state1.Vc)) / 2;
-  motor.state1.Va += Vcm + motor.state.sensBus_lp / 2;
-  motor.state1.Vb += Vcm + motor.state.sensBus_lp / 2;
-  motor.state1.Vc += Vcm + motor.state.sensBus_lp / 2;
+  float Vcm = -(max(max(stateX->Va, stateX->Vb), stateX->Vc) + min(min(stateX->Va, stateX->Vb), stateX->Vc)) / 2;
+  stateX->Va += Vcm + motor.state.sensBus_lp / 2;
+  stateX->Vb += Vcm + motor.state.sensBus_lp / 2;
+  stateX->Vc += Vcm + motor.state.sensBus_lp / 2;
 
   //Calculate modulation times
-  motor.state1.tA = motor.state1.Va / motor.state.sensBus_lp;
-  motor.state1.tB = motor.state1.Vb / motor.state.sensBus_lp;
-  motor.state1.tC = motor.state1.Vc / motor.state.sensBus_lp;
-
+  stateX->tA = stateX->Va / motor.state.sensBus_lp;
+  stateX->tB = stateX->Vb / motor.state.sensBus_lp;
+  stateX->tC = stateX->Vc / motor.state.sensBus_lp;
+  // What is better, use lowpassed or raw bus voltage?
 }
 
+
+void current_and_duty_limts( mot_conf_t* confX , mot_state_t* stateX ) {
+  truncate_number( &stateX->tA , 0.0 , 1.0);
+  truncate_number( &stateX->tB , 0.0 , 1.0);
+  truncate_number( &stateX->tC , 0.0 , 1.0);
+
+  if ( (abs(stateX->Id_SP) > confX->I_max) || (abs(stateX->Iq_SP) > confX->I_max) ) {
+    error(3 , stateX);
+  }
+  if ( (abs(stateX->Id_meas) > confX->I_max) || (abs(stateX->Iq_meas) > confX->I_max)  ) {
+    error(4 , stateX);
+  }
+}
+
+
 void changePWM() {
-  if (motor.state1.tA > 1) {
-    motor.state1.tA = 1;
-  }
-  if (motor.state1.tB > 1) {
-    motor.state1.tB = 1;
-  }
-  if (motor.state1.tC > 1) {
-    motor.state1.tC = 1;
-  }
-
-  if (motor.state1.tA < 0) {
-    motor.state1.tA = 0;
-  }
-  if (motor.state1.tB < 0) {
-    motor.state1.tB = 0;
-  }
-  if (motor.state1.tC < 0) {
-    motor.state1.tC = 0;
-  }
-
-  if ( (abs(motor.state1.Id_SP) > motor.conf1.I_max) || (abs(motor.state1.Iq_SP) > motor.conf1.I_max) ) {
-    motor.state1.OutputOn = false;
-    if (motor.state.firsterror == 0) {
-      motor.state.firsterror = 3;
-    }
-  }
-  if ( (abs(motor.state1.Id_meas) > motor.conf1.I_max) || (abs(motor.state1.Iq_meas) > motor.conf1.I_max)  ) {
-    motor.state1.OutputOn = false;
-    if (motor.state.firsterror == 0) {
-      motor.state.firsterror = 4;
-    }
-  }
-
-  //  if ( (abs(Id_SP2) > motor.conf1.I_max) || (abs(motor.state2.Iq_SP) > motor.conf1.I_max) ) {
-  //    motor.state1.OutputOn = false;
-  //    if (motor.state.firsterror == 0) {
-  //      motor.state.firsterror = 23;
-  //    }
-  //  }
-  //  if ( (abs(Id_meas2) > motor.conf1.I_max) || (abs(Iq_meas2) > motor.conf1.I_max)  ) {
-  //    motor.state1.OutputOn = false;
-  //    if (motor.state.firsterror == 0) {
-  //      motor.state.firsterror = 24;
-  //    }
-  //  }
-
-
-
   //  //Motor 1, flexpwm4:
   FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
   if (motor.state1.OutputOn == false) {
     digitalWrite( ENGATE , 0);
-    digitalWrite( ENGATE2 , 0);
     FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 / 2;
     FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 / 2;
     FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 / 2;
@@ -1052,7 +988,6 @@ void changePWM() {
   else {
     // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
     digitalWrite( ENGATE , 1);
-    digitalWrite( ENGATE2 , 1);
     FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 * motor.state1.tB;
     FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 * motor.state1.tC;
     FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 * motor.state1.tA;
@@ -1064,39 +999,24 @@ void changePWM() {
 
 
   //Motor 2, flexpwm2:
-  //  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
-  //  if (motor.state1.OutputOn == false) {
-  //    digitalWrite( ENGATE , 0);
-  //    digitalWrite( ENGATE2 , 0);
-  //    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 / 2;
-  //    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 / 2;
-  //    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 / 2;
-  //  }
-  //  else {
-  //    // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
-  //    digitalWrite( ENGATE , 1);
-  //    digitalWrite( ENGATE2 , 1);
-  //    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 * motor.state1.tC;
-  //    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 * motor.state1.tB;
-  //    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 * motor.state1.tA;
-  //  }
-  //  FLEXPWM2_SM0VAL2 = -FLEXPWM2_SM0VAL3;
-  //  FLEXPWM2_SM1VAL2 = -FLEXPWM2_SM1VAL3;
-  //  FLEXPWM2_SM2VAL2 = -FLEXPWM2_SM2VAL3;
-  //  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
-
-  //  M1:
-  //  FLEXPWM4 22 23 2
-  //  {1, M(4, 0), 1, 1},  // FlexPWM4_0_A  22  // AD_B1_08    --> M1 Phase B
-  //  {1, M(4, 1), 1, 1},  // FlexPWM4_1_A  23  // AD_B1_09    --> M1 Phase C
-  //  {1, M(4, 2), 1, 1},  // FlexPWM4_2_A   2  // EMC_04      --> M1 Phase A
-  //
-  //  M2:
-  //  FLEXPWM2 4 5 6
-  //  {1, M(2, 0), 1, 1},  // FlexPWM2_0_A   4  // EMC_06      --> M2 Phase C
-  //  {1, M(2, 1), 1, 1},  // FlexPWM2_1_A   5  // EMC_08      --> M2 Phase B
-  //  {1, M(2, 2), 1, 2},  // FlexPWM2_2_A   6  // B0_10       --> M2 Phase A
-
+  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
+  if (motor.state2.OutputOn == false) {
+    digitalWrite( ENGATE2 , 0);
+    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 / 2;
+    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 / 2;
+    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 / 2;
+  }
+  else {
+    // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
+    digitalWrite( ENGATE2 , 1);
+    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 * motor.state2.tC;
+    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 * motor.state2.tB;
+    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 * motor.state2.tA;
+  }
+  FLEXPWM2_SM0VAL2 = -FLEXPWM2_SM0VAL3;
+  FLEXPWM2_SM1VAL2 = -FLEXPWM2_SM1VAL3;
+  FLEXPWM2_SM2VAL2 = -FLEXPWM2_SM2VAL3;
+  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
 }
 
 
@@ -1138,19 +1058,18 @@ void communicationProcess() {
 
 }
 
-void processCommands() {
-  switch (motor.conf1.Command) {
+void processCommands( mot_conf_t* confX ) {
+  switch (confX->Command) {
     case UPDATE_CONTROLLER:
       {
-        motor.conf1.Kp = motor.conf1.Kp_prep;
-        motor.conf1.Kd = motor.conf1.Kd_prep;
-        motor.conf1.Ki = motor.conf1.Ki_prep;
-        motor.conf1.lowpass_c = motor.conf1.lowpass_c_prep;
-//        motor.conf1.T_max
-
-        motor.conf1.Command = NO_COMMAND;
+        confX->Kp = confX->Kp_prep;
+        confX->Kd = confX->Kd_prep;
+        confX->Ki = confX->Ki_prep;
+        confX->lowpass_c = confX->lowpass_c_prep;
+        confX->Command = NO_COMMAND;
         break;
       }
+      
   }
 }
 
@@ -1248,16 +1167,29 @@ void processSerialIn() {
 
     case  '1':
       {
-        Serial.readBytes( (char*)&SPprofile->t1 , 4);
-        Serial.readBytes( (char*)&SPprofile->t2 , 4);
-        Serial.readBytes( (char*)&SPprofile->t3 , 4);
-        Serial.readBytes( (char*)&SPprofile->p , 4);
-        Serial.readBytes( (char*)&SPprofile->v_max , 4);
-        Serial.readBytes( (char*)&SPprofile->a_max , 4);
-        Serial.readBytes( (char*)&SPprofile->j_max , 4);
-        SPprofile->init();
+        Serial.readBytes( (char*)&SPprofile1->t1 , 4);
+        Serial.readBytes( (char*)&SPprofile1->t2 , 4);
+        Serial.readBytes( (char*)&SPprofile1->t3 , 4);
+        Serial.readBytes( (char*)&SPprofile1->p , 4);
+        Serial.readBytes( (char*)&SPprofile1->v_max , 4);
+        Serial.readBytes( (char*)&SPprofile1->a_max , 4);
+        Serial.readBytes( (char*)&SPprofile1->j_max , 4);
+        SPprofile1->init();
         break;
       }
+    case  '2':
+      {
+        Serial.readBytes( (char*)&SPprofile2->t1 , 4);
+        Serial.readBytes( (char*)&SPprofile2->t2 , 4);
+        Serial.readBytes( (char*)&SPprofile2->t3 , 4);
+        Serial.readBytes( (char*)&SPprofile2->p , 4);
+        Serial.readBytes( (char*)&SPprofile2->v_max , 4);
+        Serial.readBytes( (char*)&SPprofile2->a_max , 4);
+        Serial.readBytes( (char*)&SPprofile2->j_max , 4);
+        SPprofile2->init();
+        break;
+      }
+      
   }
 }
 
@@ -1300,5 +1232,14 @@ static inline void truncate_number_abs(float *number, float max) {
     *number = max;
   } else if (*number < -max) {
     *number = -max;
+  }
+}
+
+void error( int ierror ,  mot_state_t* stateX ) {
+  motor.state1.OutputOn = false;
+  motor.state2.OutputOn = false;
+  if (motor.state.firsterror == 0) {
+    motor.state.firsterror = ierror;
+    stateX->firsterror = ierror;
   }
 }
