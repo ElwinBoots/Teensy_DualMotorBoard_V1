@@ -49,6 +49,20 @@ def bode(H, f, name='Data', title='bode plot'):
     plt.show()
 
 
+def nyquist( H ,f  , name = '' , title = 'nyquist plot'):
+    plt.plot( np.real( H ) , np.imag( H ) , label = name)    # Bode magnitude plot
+    tmp = 0.5 * np.exp( -1j * np.arange( 0 , 2*np.pi , 0.01) ) - 1
+    plt.plot( np.real( tmp ) , np.imag( tmp ) , label = '6 dB')    # Bode magnitude plot
+    plt.grid( 1 , 'both')
+    plt.title(title)
+    plt.legend()
+    plt.xlabel('Real')
+    plt.ylabel('Imaginary')
+    plt.xlim( -2 , 2)
+    plt.ylim( -2 , 2)
+    plt.tight_layout()
+    plt.show()
+
 def setTrace(signals, downsample=1) :
     if isinstance(signals, str) or isinstance(signals, int):
         signals = [signals]
@@ -532,11 +546,13 @@ setpar('motor.state1.Iq_offset_SP', 1)
 df3 = trace(1)
 setpar('motor.state1.Iq_offset_SP', 0)
 # %%
-setpar('motor.state1.muziek_gain', 8)
+setpar('motor.state1.muziek_gain', 3)
 
 setpar('motor.state1.muziek_gain', 0)
 
 
+
+setpar('motor.state1.offsetVel' ,  100 )
 
 
 
@@ -701,8 +717,11 @@ dfout = getFFTdf(df, NdownsamplePRBS , 10*2047 )
 f = dfout.index.values
 
 plt.figure(1)
-bode( -dfout['motor.state1.emech'] , f, 'Measured D axis plant')
+bode( -dfout['motor.state1.emech'] , f, 'Measured plant')
 
+
+plt.figure(2)
+bode( 1/(-dfout['motor.state1.emech'] * (2*pi*f)**2) , f, 'Measured inertia')
 
 # %% Closed loop identification
 NdownsamplePRBS = 10
@@ -733,9 +752,17 @@ dfout = getFFTdf(df, NdownsamplePRBS , 10*2047 )
 f = dfout.index.values
 
 S = dfout['motor.state1.mechcontout']
-plt.figure(1)
-bode( 1/S - 1 , f, 'Measured D axis plant')
+PS = -dfout['motor.state1.emech']
+P = PS / S 
 
+plt.figure(1)
+bode( 1/S - 1 , f, 'Measured Open Loop')
+
+plt.figure(2)
+nyquist( 1/S - 1 , f, 'Measured Open Loop')
+
+plt.figure(3)
+bode( P , f, 'Measured Plant')
 
 # %% Detect Lambda_m
 signals = ['motor.state1.BEMFa', 'motor.state1.BEMFb', 'motor.state.sensBus',
@@ -1053,14 +1080,35 @@ setpar( 'motor.conf1.Kp' , 23.3)
 setpar( 'motor.hfi1.diq_compensation_on' , 1)
 setpar( 'motor.hfi1.diq_compensation_on' , 0)
 #%%  
-prepSP( 360/360*2*pi , 50*pi , 250 ,100000)
+
+setpar('motor.state1.Jload' , 3.7e-5)
+setpar('motor.state1.velFF' , 5e-5)
+
+setTrace( ['motor.state.sensBus' , 'motor.state1.rmech' , 'motor.state1.vel', 'motor.state1.emech', 'motor.state1.Vd', 'motor.state1.Vq' , 'motor.state1.Iq_SP'])
+# setTrace( ['motor.state1.emech' ])
+
+prepSP( 90/360*2*pi , 250 , 12000 ,2500000)
 
 setpar('motor.setpoint.SPdir' , 1)
-setpar('motor.setpoint.spNgo' , 2)
-while (getsig('motor.state1.REFstatus') > 0):
+setpar('motor.setpoint.spNgo' , 8)
+df = trace(0.3)
+while (getsig('motor.setpoint.spNgo') > 0 or getsig('motor.state1.REFstatus') > 0 ):
     bla = 1;
 setpar('motor.setpoint.SPdir' , 0)
-setpar('motor.setpoint.spNgo' , 2)
+setpar('motor.setpoint.spNgo' , 8)
+
+df.plot()
+
+#%%  
+prepSP( 90/360*2*pi , 250 , 12000 ,2500000)
+
+setpar('motor.setpoint.SPdir' , 1)
+setpar('motor.setpoint.spNgo' , 8)
+
+while (getsig('motor.setpoint.spNgo') > 0 or getsig('motor.state1.REFstatus') > 0 ):
+    bla = 1;
+setpar('motor.setpoint.SPdir' , 0)
+setpar('motor.setpoint.spNgo' , 8)
 
 #%%  
 p = 2*np.pi/3
@@ -1120,7 +1168,8 @@ for p in np.linspace( 0.1 , 2*pi/10 , 11):
 #%%  
 BW = 100;
 
-J = 2.5e-5
+# J = 2.5e-5
+J = 3.16e-5
 
 gain_at_BW = J * (BW*2*pi)**2
 alpha_i = 6
