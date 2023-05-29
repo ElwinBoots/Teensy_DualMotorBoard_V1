@@ -11,16 +11,11 @@
 #include "trace.h"
 
 Biquad *lowpass_sensbus   = new Biquad( bq_type_lowpass , 500 , 0.7, 2 * F_PWM);
-Integrator *integrator = new Integrator( 1 , 2 * F_PWM);
-Integrator *integrator2 = new Integrator( 1 , 2 * F_PWM);
 
 LeadLag *leadlag       = new LeadLag( 10 , 3 , 3 , 2 * F_PWM);
 Biquad *lowpass        = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
 Biquad *lowpass_eradpers   = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
 //Biquad *notch          = new Biquad( bq_type_notch , 2315.0, -20.0, 0.1 , 2 * F_PWM );
-
-LeadLag *leadlag2       = new LeadLag( 10 , 3 , 3 , 2 * F_PWM);
-Biquad *lowpass2        = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
 
 
 //Current lowpass (now used at sensor level, maybe better at id,iq level?). Doesn't seem to matter much.
@@ -97,14 +92,15 @@ void setup() {
   initparams( &motor );
 
   Serial.begin(1);
+  
   pinMode( ENGATE , OUTPUT);
-  pinMode( ENGATE2 , OUTPUT);
-
   digitalWrite( ENGATE , 1); // To be updated!
-  digitalWrite( ENGATE2 , 1); // To be updated!
+  SPI_init( SSPIN );  // Only for DRV8301. 
 
-  SPI_init( SSPIN );  // Only for DRV8301. Disable this for DRV8302
-  SPI_init( SSPIN2 );  // Only for DRV8301. Disable this for DRV8302
+  digitalWrite( ENGATE2 , 1); // To be updated!
+  pinMode( ENGATE2 , OUTPUT);
+  SPI_init( SSPIN2 );  // Only for DRV8301. 
+  
   //DRV8302_init( SSPIN2 , 13 ); // Note: pin 13 is also the SCLK pin for communication with DRV8301 and the LED.
   xbar_init();
   adc_init();
@@ -165,13 +161,6 @@ void adc_init() {
                | ADC_CFG_ADTRG;       // Hardware trigger selected
   ADC2_CFG = ADC1_CFG;
 
-  //  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_02 &= ~ (1 << 12) ; // disable keeper pin 14, as per manual
-  //  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_03 &= ~ (1 << 12) ; // disable keeper pin 15, as per manual
-  //  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_07 &= ~ (1 << 12) ; // disable keeper pin 16, as per manual
-  //  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_06 &= ~ (1 << 12) ; // disable keeper pin 17, as per manual
-  //  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_01 &= ~ (1 << 12) ; // disable keeper pin 18, as per manual
-  //  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_00 &= ~ (1 << 12) ; // disable keeper pin 19, as per manual
-
   CORE_PIN14_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
   CORE_PIN15_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
   CORE_PIN16_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
@@ -204,69 +193,6 @@ void adc_etc_init() {
 
   /* Enable the external XBAR trigger0 and trigger1. Trigger4 uses sync mode to get triggered */
   ADC_ETC_CTRL |= 1;  // TRIG_ENABLE
-
-  /* ADC channel, pin numbers
-
-    Note: 0 to 13 is same as 14 to 27. Do not try to use these for analog in!
-        7,      // 0/A0  AD_B1_02   ENC1_A
-        8,      // 1/A1  AD_B1_03   ENC1_B
-        12,     // 2/A2  AD_B1_07   M1 out A INH-A
-        11,     // 3/A3  AD_B1_06   ENC1_I
-        6,      // 4/A4  AD_B1_01   M2 out C INH-C2
-        5,      // 5/A5  AD_B1_00   M2 out B INH-B2
-        15,     // 6/A6  AD_B1_10   M2 out A INH-A2
-        0,      // 7/A7  AD_B1_11   M2 Ia              --> Doesn't work
-        13,     // 8/A8  AD_B1_08   M2 Ib              --> Doesn't work
-        14,     // 9/A9  AD_B1_09   M2 Ic              --> Doesn't work
-        255,  // 10/A10 AD_B0_12   -
-        255,  // 11/A11 AD_B0_13    SDI (SPI)
-        3,      // 12/A12 AD_B1_14  SDO (SPI)
-        4,      // 13/A13 AD_B1_15  SCLK (SPI)
-
-        7,      // 14/A0  AD_B1_02  M1 Ic
-        8,      // 15/A1  AD_B1_03  M1 Ib
-        12,     // 16/A2  AD_B1_07  M1 Ia
-        11,     // 17/A3  AD_B1_06  M1 Vbus
-        6,      // 18/A4  AD_B1_01  M1 EMF-A
-        5,      // 19/A5  AD_B1_00  M1 EMF-B
-        15,     // 20/A6  AD_B1_10  M1 EMF-C
-        0,      // 21/A7  AD_B1_11  M2 Vbus
-        13,     // 22/A8  AD_B1_08  M1 out C INH-C
-        14,     // 23/A9  AD_B1_09  M1 out B INH-B
-        255,    // 24/A10 AD_B0_12  M2 EMF-A  --> Exchanged for M2 Ia
-        255,    // 25/A11 AD_B0_13  M2 EMF-B
-        3,      // 26/A12 AD_B1_14  M2 EMF-C  --> Exchanged for M2 Ib
-        4,      // 27/A13 AD_B1_15  M2 nOCTW
-        255,    // 28               M2 PWRGD
-        255,    // 29
-        255,    // 30               ENC2_A
-        255,    // 31               ENC2_B
-        255,    // 32
-        255,    // 33               ENC2_I
-        255,    // 34               M1 EN-GATE
-        255,    // 35               M1 nSCS
-        255,    // 36               M1 nFAULT
-        255,    // 37               M1 nOCTW
-        1,      // 38/A14 AD_B1_12  M1 PWRGD
-        2,      // 39/A15 AD_B1_13  M2 EN-GATE
-        9,      // 40/A16 AD_B1_04  M2 nSCS
-        10,     // 41/A17 AD_B1_05  M2 nFAULT
-
-    Actual chain:
-        12,     // 16/A2  AD_B1_07  M1 Ia
-        8,      // 15/A1  AD_B1_03  M1 Ib
-
-        1,      // 24/A10 AD_B0_12  M2 EMF-A  --> Exchanged for M2 Ia  // Analog channel 1 input 1 NOTE: only on ADC1 !
-        3,      // 26/A12 AD_B1_14  M2 EMF-C  --> Exchanged for M2 Ib  // Analog channel 2 input 3 NOTE: only on ADC2
-
-        11,     // 17/A3  AD_B1_06  M1 Vbus
-        0,      // 21/A7  AD_B1_11  M2 Vbus
-
-    Removed due to not working (wrong pin, these do not have ADC connection):
-        0,      // 7/A7  AD_B1_11   M2 Ia
-        13,     // 8/A8  AD_B1_08   M2 Ib
-
-  */
 
   ADC_ETC_TRIG0_CTRL = ADC_ETC_TRIG_CTRL_TRIG_CHAIN(2); //TRIG chain length (0->1, 1->2, etc)
 
@@ -461,13 +387,13 @@ void adcetc1_isr() {
   motor.state.sens4 = ((ADC_ETC_TRIG4_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
   motor.state.sens4_lp = lowpassIsens4->process( motor.state.sens4 );
   motor.state.sensBus2 = (ADC_ETC_TRIG4_RESULT_3_2 & 4095) * motor.conf.Busadc2Vbus;   // 4095.0 * 3.3 * ((68.3+5.05)/5.05);
-
-  if ( motor.state.sensBus > motor.conf.V_Bus + 1 ) {
-    //    digitalWrite( CHOPPERPIN , HIGH);
-  }
-  else {
-    //    digitalWrite( CHOPPERPIN , LOW);
-  }
+//
+//  if ( motor.state.sensBus > motor.conf.V_Bus + 1 ) {
+//    //    digitalWrite( CHOPPERPIN , HIGH);
+//  }
+//  else {
+//    //    digitalWrite( CHOPPERPIN , LOW);
+//  }
   if ( motor.state.sensBus > 45 or motor.state.sensBus2 > 45 ) {
     motor.state1.OutputOn = false;
     motor.state2.OutputOn = false;
@@ -618,28 +544,19 @@ void Control() {
   }
   if (motor.state1.OutputOn == false) {
     motor.state1.emech = 0;
-    integrator->setState(0);
-    lowpass->InitStates(0);
+    motor.state1.Ki_sum = 0;
   }
-  //  if (abs(motor.state2.emech) > 0.5 & motor.conf2.Kp > 0 )
-  //  {
-  //    motor.state1.OutputOn = false;
-  //    if (motor.state.firsterror == 0) {
-  //      motor.state.firsterror = 21;
-  //    }
-  //  }
   if (motor.state1.OutputOn == false) {
     motor.state2.emech = 0;
-    integrator2->setState(0);
-    lowpass2->InitStates(0);
+    motor.state2.Ki_sum = 0;
+    
   }
   if (motor.conf1.Kp == 0) {
-    integrator->setState(0);
+    motor.state1.Ki_sum = 0;
   }
   if (motor.conf2.Kp == 0) {
-    integrator2->setState(0);
+    motor.state2.Ki_sum = 0;
   }
-
 
   motor.state1.Kp_out = motor.conf1.Kp * motor.state1.emech;
 
@@ -659,35 +576,6 @@ void Control() {
     motor.state1.mechcontout += motor.state1.acc * motor.state1.Jload;
     motor.state1.mechcontout += motor.state1.vel * motor.state1.velFF;
   }
-
-  //  motor.state1.mechcontout = motor.conf1.Kp * leadlag->process( motor.state1.emech );
-  //  motor.state1.mechcontout = lowpass->process( motor.state1.mechcontout );
-  //
-  //  motor.state2.mechcontout = motor.conf2.Kp * leadlag2->process( motor.state2.emech );
-  //  motor.state2.mechcontout = lowpass2->process( motor.state2.mechcontout );
-  //
-  //  // Clipping to be improved...
-  //  motor.state1.Iout = integrator->processclip( motor.state1.mechcontout , -motor.conf1.I_max * (1.5 * motor.conf1.N_pp * motor.conf1.Lambda_m ) - motor.state1.mechcontout , motor.conf1.I_max * (1.5 * motor.conf1.N_pp * motor.conf1.Lambda_m ) - motor.state1.mechcontout );
-  //  //motor.state2.Iout = integrator->processclip( motor.state1.mechcontout , -motor.conf1.I_max * (1.5 * motor.conf1.N_pp * motor.conf1.Lambda_m ) - motor.state1.mechcontout , motor.conf1.I_max * (1.5 * motor.conf1.N_pp * motor.conf1.Lambda_m ) - motor.state1.mechcontout );
-  //
-  //  motor.state1.mechcontout += motor.state1.Iout;
-  //  if (motor.state1.OutputOn) {
-  //    motor.state1.mechcontout += motor.state1.acc * motor.state1.Jload;
-  //    motor.state1.mechcontout += motor.state1.vel * motor.state1.velFF;
-  //  }
-  //  motor.state1.mechcontout += motor.state1.dist * motor.state1.mechdistgain;
-  //
-  //  motor.state2.mechcontout += motor.state2.Iout;
-  //  if (motor.state1.OutputOn) {
-  //    motor.state2.mechcontout += motor.state2.acc * motor.state2.Jload;
-  //    motor.state2.mechcontout += motor.state2.vel * motor.state2.velFF;
-  //  }
-  //  motor.state2.mechcontout += motor.state1.dist * motor.state2.mechdistgain;
-  //
-  //  if (motor.conf1.haptic == 1) {
-  //    motor.state2.mechcontout = motor.state1.mechcontout;
-  //  }
-
 
   if (motor.state1.OutputOn == false) {
     motor.state1.vq_int_state = 0;
@@ -859,18 +747,6 @@ void Transforms()
     }
   }
 
-  /*   if (ridethewave2 == 1 ) {
-      if ((motor.state1.IndexFound2) < 1 ) {
-        thetaPark2 = thetawave2;
-        thetawave2 -= 10 * 2 * M_PI * motor.conf.T;
-        Vq2 = 1.5;
-      }
-      else {
-        Vq2 = 0;
-        ridethewave2 = 2;
-        thetawave2 = 0;
-      }
-    } */
 
   motor.state1.Iq_SP += motor.state1.muziek_gain * muziek[ (motor.state.curloop / (50 / (int)motor.conf.Ts)) % (sizeof(muziek) / 4) ];
   motor.state1.Iq_SP += motor.state1.dist * motor.state1.Iq_distgain;
@@ -880,17 +756,8 @@ void Transforms()
   motor.state1.Id_SP = motor.state1.Id_offset_SP;
   motor.state1.Id_SP += motor.state1.dist * motor.state1.Id_distgain;
 
-  // motor.state2.Iq_SP += motor.state2.muziek_gain * muziek[ (motor.state.curloop / (50 / (int)motor.conf.Ts)) % (sizeof(muziek) / 4) ];
-  // motor.state2.Iq_SP += motor.state2.dist * motor.state2.Iq_distgain;
-
-  // Id_SP2 = Id_offset_SP2;
-  // Id_SP2 += motor.state1.dist * motor.state1.Id_distgain;
-
   motor.state1.co = cos(motor.state1.thetaPark);
   motor.state1.si = sin(motor.state1.thetaPark);
-
-  // co2 = cos(thetaPark2);
-  // si2 = sin(thetaPark2);
 
 
   // Park transform
@@ -899,12 +766,6 @@ void Transforms()
 
   motor.state1.Id_meas_lp = lowpassId1->process( motor.state1.Id_meas );
   motor.state1.Iq_meas_lp = lowpassIq1->process( motor.state1.Iq_meas );
-
-  // Id_meas2 = co2 * Ialpha2 + si2 * Ibeta2;
-  // Iq_meas2 = co2 * Ibeta2  - si2 * Ialpha2;
-  // Id_meas2_lp = lowpassId2->process( Id_meas2 );
-  // Iq_meas2_lp = lowpassIq2->process( Iq_meas2 );
-
 
   motor.state1.P_tot = 1.5 * ( motor.state1.Vq * motor.state1.Iq_meas_lp + motor.state1.Vd * motor.state1.Id_meas_lp);
   motor.state1.I_bus = motor.state1.P_tot / motor.state.sensBus_lp;
@@ -1128,67 +989,6 @@ void Transforms()
   motor.state1.tB = motor.state1.Vb / motor.state.sensBus_lp;
   motor.state1.tC = motor.state1.Vc / motor.state.sensBus_lp;
 
-  /*Motor 2 (needs to be updated, can probably be done much nicer):
-    if (ridethewave2 != 1 ) {
-    if (motor.state1.OutputOn == true) {
-      Id_e2 = Id_SP2 - Id_meas2;
-      Iq_e2 = motor.state2.Iq_SP - Iq_meas2;
-    }
-    else {
-      Id_e2 = 0;
-      Iq_e2 = 0;
-    }
-    Vq2 = Icontgain2 * Iq_e2;
-    Vq2 += integrator_Iq2->processclip( Vq2 , -V_Bus - Vq2 , V_Bus - Vq2 );
-
-    //Additional Vq
-    Vq2 += VSP;
-    Vq2 += motor.state1.dist * motor.state1.Vq_distgain;
-
-    Vd2 = Icontgain2 * Id_e2;
-    Vd2 += integrator_Id2->processclip( Vd2 , -V_Bus - Vd2 , V_Bus - Vd2 );
-
-    //Additional Vd
-    Vd2 += motor.state1.dist * motor.state1.Vd_distgain;
-
-    we2 = motor.state2.vel * 8;  //Electrical speed [rad/s], based on setpoint
-
-    // PMSM decoupling control and BEMF FF
-    VqFF2 = we2 * ( Ld2 * Id_meas2 + Lambda_m2);
-
-    // q axis induction FFW based on setpoint FFW
-    VqFF2 += SPprofile->jref * motor.state2.Jload * Lq2 * Kt_Nm_Apeak2 * motor.state1.OutputOn;
-
-    Vq2 += VqFF2;
-    VdFF2 = -we2 * Lq2 * Iq_meas2;
-    Vd2 += VdFF2;
-    }
-
-    Vq2 += motor.state1.muziek_gain_V * muziek[ (motor.state.curloop / (50 / (int)motor.conf.Ts)) % (sizeof(muziek) / 4) ];
-
-    // Inverse park transform
-    Valpha2 = co2 * Vd2 - si2 * Vq2;
-    Vbeta2  = co2 * Vq2 + si2 * Vd2;
-
-    Valpha2 += Valpha2_offset;
-
-    // Inverse Power-variant Clarke transform
-    Va2 = Valpha2;
-    Vb2 = -0.5 * Valpha2 + SQRT3_by_2 * Vbeta2;
-    Vc2 = -0.5 * Valpha2 - SQRT3_by_2 * Vbeta2;
-
-    //See https://microchipdeveloper.com/mct5001:start Zero Sequence Modulation Tutorial
-    // These lines make SVM happen:
-    float Vcm2 = -(max(max(Va2, Vb2), Vc2) + min(min(Va2, Vb2), Vc2)) / 2;
-    Va2 += Vcm2 + motor.state.sensBus_lp / 2;
-    Vb2 += Vcm2 + motor.state.sensBus_lp / 2;
-    Vc2 += Vcm2 + motor.state.sensBus_lp / 2;
-
-    //Calculate modulation times
-    tA2 = Va2 / motor.state.sensBus_lp;
-    tB2 = Vb2 / motor.state.sensBus_lp;
-    tC2 = Vc2 / motor.state.sensBus_lp;
-  */
 }
 
 void changePWM() {
@@ -1385,17 +1185,6 @@ void processSerialIn() {
         break;
       }
 
-    case 'C':
-      {
-        integrator = new Integrator( motor.conf1.fInt , 2 * F_PWM);
-        leadlag       = new LeadLag( motor.conf1.fBW , motor.conf1.alpha1 , motor.conf1.alpha2 , 2 * F_PWM);
-        lowpass        = new Biquad( bq_type_lowpass , motor.conf1.fLP , 0.7, 2 * F_PWM);
-        //        integrator2 = new Integrator( fInt2 , 2 * F_PWM);
-        //        leadlag2       = new LeadLag( fBW2 , alpha1_2 , alpha2_2 , 2 * F_PWM);
-        //        lowpass2        = new Biquad( bq_type_lowpass , fLP2 , 0.7 , 2 * F_PWM);
-        break;
-      }
-
     case 'g': //Get specific signal(s) from array
       {
         Serial.readBytes( (char*)&isignal , 4);
@@ -1472,102 +1261,6 @@ void processSerialIn() {
   }
 }
 
-
-/*
-  if (Serial.available() > 4) {
-  char settingByte = Serial.read();
-  for ( int i = 0; i < 4; i++) {
-    ser_in.bin[i] = Serial.read();
-  }
-  if (settingByte == 's') {
-    motor.conf1.ss_gain = ser_in.fp;
-    motor.state1.ss_f = ss_fstart;
-    motor.state1.ss_phase = 0;
-    motor.state1.ss_tstart = (motor.state.curtime + Ts) / 1e6; //timePrev gebruik ik niet meer?!!
-  }
-  if (settingByte == 'o') {
-    digitalWrite( ENGATE , 1);
-    SPI_init();
-    motor.state1.OutputOn = true;
-    motor.state1.offsetVelTot = 0;
-    //      motor.state1.encoderPos1 = 0;
-    //      motor.state1.encoderPos2 = 0;
-    // Reset positions to zero, as the floating point number is most accurate here
-    SPprofile->REFqmem = 0;
-    if (motor.conf1.haptic == 1) {
-      rmechoffset = motor.state1.ymech + motor.state2.ymech;
-    }
-    else {
-      rmechoffset = motor.state1.ymech;
-    }
-    rmechoffset2 = motor.state2.ymech;
-
-    integrator->setState(0);
-    motor.state1.vq_int_state = 0;
-    motor.state1.vd_int_state = 0;
-
-    integrator2->setState(0);
-    integrator_Id2->setState(0);
-    integrator_Iq2->setState(0);
-
-    motor.state.firsterror = 0;
-  }
-
-  if (settingByte == '1') {
-    SPprofile->t1 = ser_in.fp;
-  }
-  if (settingByte == '2') {
-    SPprofile->t2 = ser_in.fp;
-  }
-  if (settingByte == '3') {
-    SPprofile->t3 = ser_in.fp;
-  }
-  if (settingByte == '4') {
-    SPprofile->p = ser_in.fp;
-  }
-  if (settingByte == '5') {
-    SPprofile->v_max = ser_in.fp;
-  }
-  if (settingByte == '6') {
-    SPprofile->a_max = ser_in.fp;
-  }
-  if (settingByte == '7') {
-    SPprofile->j_max = ser_in.fp;
-    SPprofile->init();
-  }
-  if (settingByte == '8') {
-    int adc_shift = ser_in.sint;
-    FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );//  Clear Load Okay LDOK(SM) -> no reload of PWM settings
-    FLEXPWM2_SM0VAL4 = 0 + adc_shift; // adc trigger
-    FLEXPWM2_SM0VAL5 = FLEXPWM2_SM0VAL1 + adc_shift; // adc trigger
-    FLEXPWM2_SM2VAL4 = FLEXPWM2_SM0VAL4; // adc trigger output
-    FLEXPWM2_SM2VAL5 = FLEXPWM2_SM0VAL5; // adc trigger output
-    FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 );// Load Okay LDOK(SM) -> reload setting again
-  }
-
-  if (settingByte == 't') {
-    tracearray[Serial.read()] = ser_in.uint;
-  }
-  if (settingByte == 'T') {
-    printSignals( ser_in.uint );
-  }
-  if (settingByte == 'S') {
-    for ( int i = 0; i < 4; i++) {
-      bf.bin[i] = Serial.read();
-    }
-    setpar( ser_in.uint , bf );
-  }
-
-  if (settingByte == 'C') {
-    integrator = new Integrator( fInt , 2 * F_PWM);
-    leadlag       = new LeadLag( fBW , alpha1 , alpha2 , 2 * F_PWM);
-    lowpass        = new Biquad( bq_type_lowpass , fLP , 0.7, 2 * F_PWM);
-    integrator2 = new Integrator( fInt2 , 2 * F_PWM);
-    leadlag2       = new LeadLag( fBW2 , alpha1_2 , alpha2_2 , 2 * F_PWM);
-    lowpass2        = new Biquad( bq_type_lowpass , fLP2 , 0.7 , 2 * F_PWM);
-  }
-  }
-*/
 
 void utils_step_towards(float * value, float goal, float step) {
   if (*value < goal) {
