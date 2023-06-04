@@ -126,12 +126,13 @@ void Biquad::setNotch( float f0, float debthdb, float notch_width, float fs) {
   //a0 =   1;
   a1 =  -2 * cos(w0) / (1 + alpha);
   a2 =   (1 - alpha) / (1 + alpha);
+  InitStates();
 }
 
 
 
 
-void Biquad::InitStates( float in ) {
+void Biquad::InitStates( ) {
 	z1 = in * (1-b0);
 	z2 = in * (b2 - a2);
 }
@@ -170,6 +171,6 @@ void Biquad::calcBiquad(void) {
       break;
 
   }
-
+  InitStates();
   return;
 }

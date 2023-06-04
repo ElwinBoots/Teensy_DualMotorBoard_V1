@@ -31,7 +31,7 @@ class Biquad {
     Biquad(int type, float f0, float damp, float fs);
     Biquad(int type, float f0, float debthdb, float notch_width, float fs);
     ~Biquad();
-    void InitStates( float in );
+    void InitStates( );
     void setType(int type);
     void setdamp(float damp);
     void setf0(float f0);
@@ -47,11 +47,12 @@ class Biquad {
     int type;
     float b0, a1, a2, b1, b2;
     float f0, damp, fs;
-    float z1, z2;
+    float z1, z2, in;
   protected:
 };
 
 inline float Biquad::process(float in) {
+  this->in = in;
   float out = in * b0 + z1;
   z1 = in * b1 + z2 - a1 * out;
   z2 = in * b2 - a2 * out;
