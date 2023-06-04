@@ -20,40 +20,42 @@
 #define Biquad_h
 
 enum {
-    bq_type_lowpass = 0,
-    bq_type_highpass,
-    bq_type_notch,
+  bq_type_lowpass = 0,
+  bq_type_highpass,
+  bq_type_notch,
 };
 
 class Biquad {
-public:
+  public:
     Biquad();
     Biquad(int type, float f0, float damp, float fs);
-    Biquad(int type, float f0, float debthdb, float width, float fs);
+    Biquad(int type, float f0, float debthdb, float notch_width, float fs);
     ~Biquad();
-	void InitStates( float in );
+    void InitStates( float in );
     void setType(int type);
     void setdamp(float damp);
     void setf0(float f0);
     void setfs(float fs);
     void setBiquad(int type, float f0, float damp, float fs);
+    void setNotch( float f0, float debthdb, float notch_width, float fs);
     float process(float in);
 
 
-protected:
+
     void calcBiquad(void);
 
     int type;
     float b0, a1, a2, b1, b2;
-    float f0, damp, fs, bla;
-	float z1, z2;
+    float f0, damp, fs;
+    float z1, z2;
+  protected:
 };
 
 inline float Biquad::process(float in) {
-    float out = in * b0 + z1;
-    z1 = in * b1 + z2 - a1 * out;
-    z2 = in * b2 - a2 * out;
-    return out;
+  float out = in * b0 + z1;
+  z1 = in * b1 + z2 - a1 * out;
+  z2 = in * b2 - a2 * out;
+  return out;
 }
 
 #endif // Biquad_h

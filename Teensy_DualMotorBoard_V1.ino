@@ -3,20 +3,20 @@
 #include <SPI.h>
 
 #include "Biquad.h"
-#include "ControlTools.h"
+
+//#include "ControlTools.h"
 #include "muziek.c"
 #include "QuadEncoder.h"
 #include "MotionProfile.h"
 #include "defines.h"
 #include "trace.h"
 
-Biquad *lowpass_sensbus   = new Biquad( bq_type_lowpass , 500 , 0.7, 2 * F_PWM);
-
-LeadLag *leadlag       = new LeadLag( 10 , 3 , 3 , 2 * F_PWM);
 Biquad *lowpass        = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
 Biquad *lowpass_eradpers   = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
 //Biquad *notch          = new Biquad( bq_type_notch , 2315.0, -20.0, 0.1 , 2 * F_PWM );
 
+Biquad *Biquads1[4];
+Biquad *Biquads2[4];
 
 //Current lowpass (now used at sensor level, maybe better at id,iq level?). Doesn't seem to matter much.
 Biquad *lowpassIsens1  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * F_PWM);
@@ -44,7 +44,6 @@ Biquad *lowpass_ss_offset = new Biquad( bq_type_lowpass , 10 , 0.707, 2 * F_PWM)
 //WARNING! Pins 0, 5 and 37 share the same internal crossbar connections and are as such exclusive...pick one or the other.
 QuadEncoder Encoder1(1, 0, 1 , 0 , 3);   //Encoder 1 on pins 0 and 1, index on pin 3
 QuadEncoder Encoder2(2, 30, 31 , 0 , 33);//Encoder 2 on pins 30 and 31, index on pin 33
-
 
 void initparams( motor_total_t* m ) {
   m->conf.Ts = 1e6 / (2 * F_PWM);
@@ -94,6 +93,12 @@ void setup() {
   initparams( &motor );
 
   Serial.begin(1);
+
+  for (int i = 0; i < 4; i++)
+  {
+    Biquads1[i] = new Biquad( bq_type_lowpass , 5000 , 0.7, 2 * F_PWM);;
+    Biquads2[i] = new Biquad( bq_type_lowpass , 5000 , 0.7, 2 * F_PWM);;
+  }
 
   pinMode( ENGATE , OUTPUT);
   digitalWrite( ENGATE , 1); // To be updated!
@@ -381,7 +386,7 @@ void adcetc1_isr() {
   motor.state.sens3 = ((ADC_ETC_TRIG0_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
   motor.state.sens3_lp = lowpassIsens3->process( motor.state.sens3 );
   motor.state.sensBus = (ADC_ETC_TRIG0_RESULT_3_2 & 4095) * motor.conf.Busadc2Vbus;   // 4095.0 * 3.3 * ((68.3+5.05)/5.05);
-  motor.state.sensBus_lp = lowpass_sensbus->process( motor.state.sensBus );
+  LOWPASS( motor.state.sensBus_lp , motor.state.sensBus, 0.1 ); //1000 Hz when running at 60 kHz
 
   //ADC2:
   motor.state.sens2 = (ADC_ETC_TRIG4_RESULT_1_0 & 4095) * 0.0008058608; // 4095.0 * 3.3;
@@ -389,7 +394,7 @@ void adcetc1_isr() {
   motor.state.sens4 = ((ADC_ETC_TRIG4_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
   motor.state.sens4_lp = lowpassIsens4->process( motor.state.sens4 );
   motor.state.sensBus2 = (ADC_ETC_TRIG4_RESULT_3_2 & 4095) * motor.conf.Busadc2Vbus;   // 4095.0 * 3.3 * ((68.3+5.05)/5.05);
-  
+
   // Calculate currents (links sensors to axes, to be improved)
   if (motor.conf1.useIlowpass == 1)
   {
@@ -411,7 +416,7 @@ void adcetc1_isr() {
     motor.state2.ib = motor.conf2.adc2A * (motor.state.sens4 - motor.state.sens4_calib);
   }
   motor.state2.ic = -motor.state2.ia - motor.state2.ib;
-  
+
   //
   //  if ( motor.state.sensBus > motor.conf.V_Bus + 1 ) {
   //    //    digitalWrite( CHOPPERPIN , HIGH);
@@ -425,7 +430,7 @@ void adcetc1_isr() {
   if ( motor.state.sensBus2 > 45  ) {
     error(41 , &motor.state2);
   }
-  
+
   if (motor.state.setupready == 1) {
     if (motor.state.n_senscalib < 1e4) {
       // Have to check this. Calibration not always ok.
@@ -447,8 +452,8 @@ void adcetc1_isr() {
       GenSetpoint( &motor.conf1 , &motor.state1 , SPprofile1 );
       GenSetpoint( &motor.conf2 , &motor.state2 , SPprofile2 );
       readENC();
-      Control( &motor.conf1 , &motor.state1 );
-      Control( &motor.conf2 , &motor.state2 );
+      Control( &motor.conf1 , &motor.state1 , Biquads1);
+      Control( &motor.conf2 , &motor.state2 , Biquads2);
       Transforms( &motor.conf1 , &motor.state1 );
       Transforms( &motor.conf2 , &motor.state2 );
 
@@ -456,8 +461,8 @@ void adcetc1_isr() {
       current_and_duty_limts( &motor.conf2 , &motor.state2 );
       changePWM();
       communicationProcess();
-      processCommands( &motor.conf1 );
-      processCommands( &motor.conf2 );
+      processCommands( &motor.conf1 , &motor.state1);
+      processCommands( &motor.conf2 , &motor.state2);
       motor.state.curloop++;
     }
   }
@@ -520,7 +525,10 @@ void GenSetpoint( mot_conf_t* confX , mot_state_t* stateX , MotionProfile* SPpro
   stateX->REFstatus = SPprofileX->REFstatus;
   stateX->rmech = SPprofileX->stateCalculation( stateX->spGO );
 
-  stateX->offsetVel_lp = lowpassSP->process( stateX->offsetVel );
+  //  stateX->offsetVel_lp = lowpassSP->process( stateX->offsetVel );
+
+  utils_step_towards( &stateX->offsetVel_lp , stateX->offsetVel, 20.0 * motor.conf.T );
+
   stateX->offsetVelTot += stateX->offsetVel_lp * motor.conf.T;
   stateX->rmech += stateX->offsetVelTot ;
 
@@ -552,7 +560,7 @@ void readENC() {
   motor.state2.IndexFound1 = motor.state.IndexFound2;
 }
 
-void Control( mot_conf_t* confX , mot_state_t* stateX ) {
+void Control( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX) {
   stateX->ymech = stateX->encoderPos1 * confX->enc2rad * confX->enc_transmission;
 
   if (stateX->hfi_useforfeedback == 1) {
@@ -585,7 +593,24 @@ void Control( mot_conf_t* confX , mot_state_t* stateX ) {
 
   LOWPASS( stateX->lp_out, stateX->Ki_out, confX->lowpass_c);
 
-  stateX->mechcontout = stateX->lp_out + stateX->dist * stateX->mechdistgain;
+  stateX->biquadout = stateX->lp_out;
+
+  for ( int i = 0; i < 4; i++) {
+    stateX->biquadout = BiquadsX[i]->process( stateX->biquadout );
+  }
+
+  stateX->a1 = BiquadsX[0]->a1;
+  stateX->a2 = BiquadsX[0]->a2;
+  stateX->b0 = BiquadsX[0]->b0;
+  stateX->b1 = BiquadsX[0]->b1;
+  stateX->b2 = BiquadsX[0]->b2;
+  stateX->f0 = BiquadsX[0]->f0;
+  stateX->damp = BiquadsX[0]->damp;
+  stateX->fs = BiquadsX[0]->fs;
+  stateX->z1 = BiquadsX[0]->z1;
+  stateX->z2 = BiquadsX[0]->z2;
+
+  stateX->mechcontout = stateX->biquadout + stateX->dist * stateX->mechdistgain;
 
   if (stateX->OutputOn) {
     stateX->mechcontout += stateX->acc * stateX->Jload;
@@ -618,9 +643,9 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX )
   //Angle observer by mxlemming
   float L = (confX->Ld + confX->Lq) / 2;
   stateX->BEMFa = stateX->BEMFa + (stateX->Valpha - stateX->R * stateX->Ialpha) * motor.conf.T -
-                       L * (stateX->Ialpha - stateX->Ialpha_last);
+                  L * (stateX->Ialpha - stateX->Ialpha_last);
   stateX->BEMFb = stateX->BEMFb + (stateX->Vbeta - stateX->R * stateX->Ibeta) * motor.conf.T -
-                       L * (stateX->Ibeta - stateX->Ibeta_last)  ;
+                  L * (stateX->Ibeta - stateX->Ibeta_last)  ;
   stateX->Ialpha_last = stateX->Ialpha;
   stateX->Ibeta_last = stateX->Ibeta;
   if (stateX->BEMFa > confX->Lambda_m  ) {
@@ -738,8 +763,11 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX )
   stateX->Id_meas = stateX->co * stateX->Ialpha + stateX->si * stateX->Ibeta;
   stateX->Iq_meas = stateX->co * stateX->Ibeta  - stateX->si * stateX->Ialpha;
 
-  stateX->Id_meas_lp = lowpassId1->process( stateX->Id_meas );
-  stateX->Iq_meas_lp = lowpassIq1->process( stateX->Iq_meas );
+  //  stateX->Id_meas_lp = lowpassId1->process( stateX->Id_meas );
+  //  stateX->Iq_meas_lp = lowpassIq1->process( stateX->Iq_meas );
+
+  LOWPASS( stateX->Id_meas_lp, stateX->Id_meas, 0.005 ); //50 Hz when running at 60 kHz
+  LOWPASS( stateX->Iq_meas_lp, stateX->Iq_meas, 0.005 );
 
   stateX->P_tot = 1.5 * ( stateX->Vq * stateX->Iq_meas_lp + stateX->Vd * stateX->Id_meas_lp);
   stateX->I_bus = stateX->P_tot / motor.state.sensBus_lp;
@@ -848,20 +876,30 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX )
       stateX->Iq_e = 0;
     }
 
-    stateX->Vq = confX->Kp_iq * stateX->Iq_e;
-    stateX->vq_int_state += confX->Ki_iq * motor.conf.T * stateX->Vq;
-    stateX->Vq += stateX->vq_int_state;
+    stateX->Kp_iq_out = confX->Kp_iq * stateX->Iq_e;
+    stateX->vq_int_state += confX->Ki_iq * motor.conf.T * stateX->Kp_iq_out;
+    stateX->Ki_iq_out = stateX->Kp_iq_out + stateX->vq_int_state;
+    LOWPASS( stateX->Vq_lp_out , stateX->Ki_iq_out, confX->lowpass_Vq_c);
 
     //Additional Vq
+    stateX->Vq = stateX->Vq_lp_out;
     stateX->Vq += stateX->VSP;
     stateX->Vq += stateX->dist * stateX->Vq_distgain;
     stateX->Vq += stateX->hfi_V_act * stateX->compensation;
 
-    stateX->Vd = confX->Kp_id * stateX->Id_e;
-    stateX->vd_int_state += confX->Ki_id * motor.conf.T * stateX->Vd;;
-    stateX->Vd += stateX->vd_int_state;
+    //    stateX->Vd = confX->Kp_id * stateX->Id_e;
+    //    stateX->vd_int_state += confX->Ki_id * motor.conf.T * stateX->Vd;;
+    //    stateX->Vd += stateX->vd_int_state;
+    //
+    //    LOWPASS( stateX->Vd , stateX->Vd, confX->lowpass_Vd_c);
+
+    stateX->Kp_id_out = confX->Kp_id * stateX->Id_e;
+    stateX->vd_int_state += confX->Ki_id * motor.conf.T * stateX->Kp_id_out;
+    stateX->Ki_id_out = stateX->Kp_id_out + stateX->vd_int_state;
+    LOWPASS( stateX->Vd_lp_out , stateX->Ki_id_out, confX->lowpass_Vd_c);
 
     //Additional Vd
+    stateX->Vd = stateX->Vd_lp_out;
     stateX->Vd += stateX->dist * stateX->Vd_distgain;
     stateX->Vd += stateX->hfi_V_act;
 
@@ -980,14 +1018,14 @@ void changePWM() {
   //  //Motor 1, flexpwm4:
   FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
   if (motor.state1.OutputOn == false) {
-    digitalWrite( ENGATE , 0);
+    //digitalWrite( ENGATE , 0);
     FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 / 2;
     FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 / 2;
     FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 / 2;
   }
   else {
     // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
-    digitalWrite( ENGATE , 1);
+    //digitalWrite( ENGATE , 1);
     FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 * motor.state1.tB;
     FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 * motor.state1.tC;
     FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 * motor.state1.tA;
@@ -1001,14 +1039,14 @@ void changePWM() {
   //Motor 2, flexpwm2:
   FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
   if (motor.state2.OutputOn == false) {
-    digitalWrite( ENGATE2 , 0);
+    //digitalWrite( ENGATE2 , 0);
     FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 / 2;
     FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 / 2;
     FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 / 2;
   }
   else {
     // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
-    digitalWrite( ENGATE2 , 1);
+    //digitalWrite( ENGATE2 , 1);
     FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 * motor.state2.tC;
     FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 * motor.state2.tB;
     FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 * motor.state2.tA;
@@ -1058,10 +1096,16 @@ void communicationProcess() {
 
 }
 
-void processCommands( mot_conf_t* confX ) {
+void processCommands( mot_conf_t* confX ,  mot_state_t* stateX ) {
   switch (confX->Command) {
     case UPDATE_CONTROLLER:
       {
+        if (confX->Kp == 0) {
+          stateX->rmechoffset -= stateX->emech;
+          stateX->Kp_out_prev = 0;
+          stateX->Ki_sum = 0;
+          stateX->lp_out = 0;
+        }
         confX->Kp = confX->Kp_prep;
         confX->Kd = confX->Kd_prep;
         confX->Ki = confX->Ki_prep;
@@ -1069,7 +1113,24 @@ void processCommands( mot_conf_t* confX ) {
         confX->Command = NO_COMMAND;
         break;
       }
-      
+    case RESET_ERROR:
+      {
+        if (motor.state.firsterror > 0) {
+          motor.state.firsterror = 0;
+          motor.state1.firsterror = 0;
+          motor.state2.firsterror = 0;
+          motor.conf1.Kp = 0;
+          motor.conf2.Kp = 0;
+          digitalWrite( ENGATE , 1);
+          SPI_init( SSPIN );  // Only for DRV8301.
+          digitalWrite( ENGATE2 , 1);
+          SPI_init( SSPIN2 );  // Only for DRV8301.
+          motor.state1.OutputOn = true;
+          motor.state2.OutputOn = true;
+        }
+        confX->Command = NO_COMMAND;
+        break;
+      }
   }
 }
 
@@ -1189,6 +1250,46 @@ void processSerialIn() {
         SPprofile2->init();
         break;
       }
+
+    case  'N': //Notch
+      {
+        uint32_t axis;
+        Serial.readBytes( (char*)&axis , 4);
+        Serial.readBytes( (char*)&isignal , 4);
+        float f0;
+        Serial.readBytes( (char*)&f0 , 4);
+        float debthdb;
+        Serial.readBytes( (char*)&debthdb , 4);
+        float notch_width;
+        Serial.readBytes( (char*)&notch_width , 4);
+        if (axis == 1) {
+          Biquads1[isignal]->setNotch( f0, debthdb, notch_width, 2 * F_PWM);
+        }
+        else if (axis == 2) {
+          Biquads2[isignal]->setNotch( f0, debthdb, notch_width, 2 * F_PWM);
+        }
+        break;
+      }
+      
+    case  'L': //Lowpass
+      {
+        uint32_t axis;
+        Serial.readBytes( (char*)&axis , 4);
+        Serial.readBytes( (char*)&isignal , 4);
+        float f0;
+        Serial.readBytes( (char*)&f0 , 4);
+        float damp;
+        Serial.readBytes( (char*)&damp , 4);
+        if (axis == 1) {
+          Biquads1[isignal]->setBiquad( bq_type_lowpass , f0, damp, 2 * F_PWM);
+        }
+        else if (axis == 2) {
+          Biquads2[isignal]->setBiquad( bq_type_lowpass , f0, damp, 2 * F_PWM);
+        }
+        break;
+      }
+
+
       
   }
 }
@@ -1238,6 +1339,8 @@ static inline void truncate_number_abs(float *number, float max) {
 void error( int ierror ,  mot_state_t* stateX ) {
   motor.state1.OutputOn = false;
   motor.state2.OutputOn = false;
+  digitalWrite( ENGATE , 0);
+  digitalWrite( ENGATE2 , 0);
   if (motor.state.firsterror == 0) {
     motor.state.firsterror = ierror;
     stateX->firsterror = ierror;

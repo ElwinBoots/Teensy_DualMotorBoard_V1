@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+
 #define NORM2_f(x,y)    (sqrtf(sq(x) + sq(y)))
 #define UTILS_IS_INF(x)    ((x) == (1.0 / 0.0) || (x) == (-1.0 / 0.0))
 #define UTILS_IS_NAN(x)   ((x) != (x))
@@ -29,7 +30,8 @@
 
 enum commands {
   NO_COMMAND = 0,
-  UPDATE_CONTROLLER = 1
+  UPDATE_CONTROLLER = 1,
+  RESET_ERROR = 2
 };
 
 typedef struct mot_conf_t {
@@ -51,6 +53,9 @@ typedef struct mot_conf_t {
   float Kp_id;
   float Ki_iq; //Series PI controller. Ki = w0. Choose this to be R / Lq.
   float Ki_id; //Series PI controller. Ki = w0. Choose this to be R / Ld.
+  float lowpass_Vq_c;
+  float lowpass_Vd_c;
+  
   float max_edeltarad;
   float N_pp; //Number of pole pairs
   unsigned int clipMethod;
@@ -82,6 +87,17 @@ typedef struct mot_conf_t {
 } mot_conf_t;
 
 typedef struct mot_state_t {
+  float a1; 
+  float a2; 
+  float b0; 
+  float b1; 
+  float b2; 
+  float f0; 
+  float damp; 
+  float fs;
+  float z1;
+  float z2;
+  
   float i_vector_radpers_act;
   float BEMFa;
   float BEMFb;
@@ -108,6 +124,7 @@ typedef struct mot_state_t {
   float Ki_sum;
   float Ki_out;
   float lp_out;
+  float biquadout;
   float mechcontout;
   float Iout;
   float muziek_gain;
@@ -136,7 +153,7 @@ typedef struct mot_state_t {
   float Jload2;
   float velFF2;
 
-  float offsetVelTot;
+  double offsetVelTot;
   float offsetVel;
   float offsetVel_lp;
   float acc;
@@ -176,10 +193,10 @@ typedef struct mot_state_t {
 
   float maxVolt;
   float Vtot;
-  float rmech;
+  double rmech;
   float rdelay; //Delays the reference relative to the feedforward signal. e.g. rdelay of 0.5 gives 0.5 Ts delay.
   float emech;
-  float ymech;
+  double ymech;
   float rmechoffset;
 
   float we;
@@ -194,6 +211,13 @@ typedef struct mot_state_t {
   float I_bus;
   float P_tot;
 
+  float Kp_iq_out;
+  float Ki_iq_out;
+  float Kp_id_out;
+  float Ki_id_out;
+  float Vq_lp_out;
+  float Vd_lp_out;
+  
   bool SPdir;
   int spNgo;
   
