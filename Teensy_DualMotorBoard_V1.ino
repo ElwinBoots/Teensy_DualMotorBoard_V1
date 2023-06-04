@@ -535,7 +535,7 @@ void GenSetpoint( mot_conf_t* confX , mot_state_t* stateX , MotionProfile* SPpro
   stateX->rmech += stateX->rmechoffset;
 
   stateX->acc = SPprofileX->aref;
-  stateX->vel = SPprofileX->vref + stateX->offsetVelTot;
+  stateX->vel = SPprofileX->vref + stateX->offsetVel_lp;
   stateX->we = stateX->vel * confX->N_pp;  //Electrical speed [rad/s], based on setpoint
 
   //When no setpoint is running, always convert reference to nearest encoder count to avoid noise
@@ -1116,6 +1116,12 @@ void processCommands( mot_conf_t* confX ,  mot_state_t* stateX ) {
     case RESET_ERROR:
       {
         if (motor.state.firsterror > 0) {
+          motor.state1.offsetVel_lp = 0;
+          motor.state1.offsetVel = 0;
+          motor.state1.offsetVelTot = 0;
+          motor.state2.offsetVel_lp = 0;
+          motor.state2.offsetVel = 0;
+          motor.state2.offsetVelTot = 0;
           motor.state.firsterror = 0;
           motor.state1.firsterror = 0;
           motor.state2.firsterror = 0;
