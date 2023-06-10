@@ -41,7 +41,8 @@ Biquad *lowpass_ss_offset = new Biquad( bq_type_lowpass , 10 , 0.707, 2 * F_PWM)
 
 //There are 4 hardware quadrature encoder channels available the Teensy 4.x.
 //The Teensy 4.1 Encoders are supported on pins: 0, 1, 2, 3, 4, 5, 7, 30, 31, 33, 36 and 37.
-//WARNING! Pins 0, 5 and 37 share the same internal crossbar connections and are as such exclusive...pick one or the other.
+//WARNING! Pins 0, 5 and 37 share the same internal crossbar connections and are as such exclusive...pick one or the other.  
+//Same thing applies to pins 1 / 36 and 5 / 37.
 QuadEncoder Encoder1(1, 0, 1 , 0 , 3);   //Encoder 1 on pins 0 and 1, index on pin 3
 QuadEncoder Encoder2(2, 30, 31 , 0 , 33);//Encoder 2 on pins 30 and 31, index on pin 33
 
@@ -345,18 +346,32 @@ void syncflexpwm() {
 }
 
 void Encoders_init() {
+//  Encoder1.setInitConfig();
+//  Encoder1.EncConfig.filterCount = 3; //Bit of filtering to avoid spurious triggering.
+//  Encoder1.EncConfig.filterSamplePeriod = 3; //Bit of filtering to avoid spurious triggering.
+//  Encoder1.EncConfig.INDEXTriggerMode  = 1;
+//  Encoder1.EncConfig.IndexTrigger  = 1;
+//  Encoder1.EncConfig.positionInitialValue = 0;
+//  Encoder1.init();
+//
+//  Encoder2.setInitConfig();
+//  Encoder2.EncConfig.filterCount = 3; //Bit of filtering to avoid spurious triggering.
+//  Encoder2.EncConfig.filterSamplePeriod = 3; //Bit of filtering to avoid spurious triggering.
+//  Encoder2.EncConfig.INDEXTriggerMode = 1;
+//  Encoder2.EncConfig.IndexTrigger  = 1;
+//  Encoder2.EncConfig.positionInitialValue = 0;
+//  Encoder2.init();
   Encoder1.setInitConfig();
-  //Optional filters
-  Encoder1.EncConfig.filterCount = 3; //Bit of filtering to avoid spurious triggering.
-  Encoder1.EncConfig.filterSamplePeriod = 3; //Bit of filtering to avoid spurious triggering.
+  Encoder1.EncConfig.filterCount = 0;
+  Encoder1.EncConfig.filterSamplePeriod = 0; 
   Encoder1.EncConfig.INDEXTriggerMode  = 1;
   Encoder1.EncConfig.IndexTrigger  = 1;
   Encoder1.EncConfig.positionInitialValue = 0;
   Encoder1.init();
 
   Encoder2.setInitConfig();
-  Encoder2.EncConfig.filterCount = 3; //Bit of filtering to avoid spurious triggering.
-  Encoder2.EncConfig.filterSamplePeriod = 3; //Bit of filtering to avoid spurious triggering.
+  Encoder2.EncConfig.filterCount = 0; 
+  Encoder2.EncConfig.filterSamplePeriod = 0; 
   Encoder2.EncConfig.INDEXTriggerMode = 1;
   Encoder2.EncConfig.IndexTrigger  = 1;
   Encoder2.EncConfig.positionInitialValue = 0;
