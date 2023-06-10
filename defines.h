@@ -87,6 +87,9 @@ typedef struct mot_conf_t {
 } mot_conf_t;
 
 typedef struct mot_state_t {
+  float T_FF_acc; 
+  float T_FF_vel; 
+ 
   float i_vector_radpers_act;
   float BEMFa;
   float BEMFb;

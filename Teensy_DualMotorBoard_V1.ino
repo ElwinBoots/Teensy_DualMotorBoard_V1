@@ -609,27 +609,17 @@ void Control( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX) {
   LOWPASS( stateX->lp_out, stateX->Ki_out, confX->lowpass_c);
 
   stateX->biquadout = stateX->lp_out;
-
   for ( int i = 0; i < 4; i++) {
     stateX->biquadout = BiquadsX[i]->process( stateX->biquadout );
   }
 
-  stateX->a1 = BiquadsX[0]->a1;
-  stateX->a2 = BiquadsX[0]->a2;
-  stateX->b0 = BiquadsX[0]->b0;
-  stateX->b1 = BiquadsX[0]->b1;
-  stateX->b2 = BiquadsX[0]->b2;
-  stateX->f0 = BiquadsX[0]->f0;
-  stateX->damp = BiquadsX[0]->damp;
-  stateX->fs = BiquadsX[0]->fs;
-  stateX->z1 = BiquadsX[0]->z1;
-  stateX->z2 = BiquadsX[0]->z2;
-
   stateX->mechcontout = stateX->biquadout + stateX->dist * stateX->mechdistgain;
 
+  stateX->T_FF_acc = stateX->acc * stateX->Jload;
+  stateX->T_FF_vel = stateX->vel * stateX->velFF;
   if (stateX->OutputOn) {
-    stateX->mechcontout += stateX->acc * stateX->Jload;
-    stateX->mechcontout += stateX->vel * stateX->velFF;
+    stateX->mechcontout += stateX->T_FF_acc;
+    stateX->mechcontout += stateX->T_FF_vel;    
     stateX->vq_int_state = 0;
     stateX->vd_int_state = 0;
   }
