@@ -15,8 +15,8 @@ Biquad *lowpass        = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
 Biquad *lowpass_eradpers   = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
 //Biquad *notch          = new Biquad( bq_type_notch , 2315.0, -20.0, 0.1 , 2 * F_PWM );
 
-Biquad *Biquads1[4];
-Biquad *Biquads2[4];
+Biquad *Biquads1[6];
+Biquad *Biquads2[6];
 
 //Current lowpass (now used at sensor level, maybe better at id,iq level?). Doesn't seem to matter much.
 Biquad *lowpassIsens1  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * F_PWM);
@@ -94,10 +94,10 @@ void setup() {
 
   Serial.begin(1);
 
-  for (int i = 0; i < 4; i++)
+  for (int i = 0; i < 6; i++)
   {
-    Biquads1[i] = new Biquad( bq_type_lowpass , 5000 , 0.7, 2 * F_PWM);;
-    Biquads2[i] = new Biquad( bq_type_lowpass , 5000 , 0.7, 2 * F_PWM);;
+    Biquads1[i] = new Biquad( bq_type_lowpass , 0 , 0.7, 2 * F_PWM);;
+    Biquads2[i] = new Biquad( bq_type_lowpass , 0 , 0.7, 2 * F_PWM);;
   }
 
   pinMode( ENGATE , OUTPUT);
@@ -454,8 +454,8 @@ void adcetc1_isr() {
       readENC();
       Control( &motor.conf1 , &motor.state1 , Biquads1);
       Control( &motor.conf2 , &motor.state2 , Biquads2);
-      Transforms( &motor.conf1 , &motor.state1 );
-      Transforms( &motor.conf2 , &motor.state2 );
+      Transforms( &motor.conf1 , &motor.state1 , Biquads1);
+      Transforms( &motor.conf2 , &motor.state2 , Biquads2);
 
       current_and_duty_limts( &motor.conf1 , &motor.state1 );
       current_and_duty_limts( &motor.conf2 , &motor.state2 );
@@ -622,7 +622,7 @@ void Control( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX) {
   stateX->Iq_SP = stateX->mechcontout / (1.5 * confX->N_pp * confX->Lambda_m );
 }
 
-void Transforms( mot_conf_t* confX , mot_state_t* stateX )
+void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
 {
   // For Park and Clarke see https://www.cypress.com/file/222111/download Power-variant Clarke transform. Asuming ia+ib+ic=0:
   stateX->Ialpha = stateX->ia;
@@ -881,8 +881,10 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX )
     stateX->Ki_iq_out = stateX->Kp_iq_out + stateX->vq_int_state;
     LOWPASS( stateX->Vq_lp_out , stateX->Ki_iq_out, confX->lowpass_Vq_c);
 
+    stateX->Vq_biquadout = BiquadsX[4]->process( stateX->Vq_lp_out );
+
     //Additional Vq
-    stateX->Vq = stateX->Vq_lp_out;
+    stateX->Vq = stateX->Vq_biquadout;
     stateX->Vq += stateX->VSP;
     stateX->Vq += stateX->dist * stateX->Vq_distgain;
     stateX->Vq += stateX->hfi_V_act * stateX->compensation;
@@ -898,8 +900,10 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX )
     stateX->Ki_id_out = stateX->Kp_id_out + stateX->vd_int_state;
     LOWPASS( stateX->Vd_lp_out , stateX->Ki_id_out, confX->lowpass_Vd_c);
 
+    stateX->Vd_biquadout = BiquadsX[5]->process( stateX->Vd_lp_out );
+
     //Additional Vd
-    stateX->Vd = stateX->Vd_lp_out;
+    stateX->Vd = stateX->Vd_biquadout;
     stateX->Vd += stateX->dist * stateX->Vd_distgain;
     stateX->Vd += stateX->hfi_V_act;
 

@@ -71,25 +71,36 @@ Biquad::Biquad(int type, float f0, float damp, float fs) {
 }
 
 Biquad::Biquad(int type, float f0, float debthdb, float notch_width, float fs) {
-  float w0 = 2 * M_PI * f0 / fs;
-  float alpha;
-  float alpha1;
-  if (debthdb < 0) {
-    alpha = notch_width * sin(w0);
-    alpha1 = alpha * pow ( 10 , debthdb / 20);
+  if (debthdb == 0) {
+    b0 = 1;
+    b1 = 0;
+    b2 = 0;
+    //a0 = 1;
+    a1 = 0;
+    a2 = 0;
+    z1 = z2 = 0.0;
   }
   else {
-    alpha = notch_width * sin(w0) * pow ( 10 , -debthdb / 20);
-    alpha1 = notch_width * sin(w0);
-  }
+    float w0 = 2 * M_PI * f0 / fs;
+    float alpha;
+    float alpha1;
+    if (debthdb < 0) {
+      alpha = notch_width * sin(w0);
+      alpha1 = alpha * pow ( 10 , debthdb / 20);
+    }
+    else {
+      alpha = notch_width * sin(w0) * pow ( 10 , -debthdb / 20);
+      alpha1 = notch_width * sin(w0);
+    }
 
-  b0 =   (1 + alpha1) / (1 + alpha);
-  b1 =  -2 * cos(w0) / (1 + alpha);
-  b2 =   (1 - alpha1) / (1 + alpha);
-  //a0 =   1;
-  a1 =  -2 * cos(w0) / (1 + alpha);
-  a2 =   (1 - alpha) / (1 + alpha);
-  z1 = z2 = 0.0;
+    b0 =   (1 + alpha1) / (1 + alpha);
+    b1 =  -2 * cos(w0) / (1 + alpha);
+    b2 =   (1 - alpha1) / (1 + alpha);
+    //a0 =   1;
+    a1 =  -2 * cos(w0) / (1 + alpha);
+    a2 =   (1 - alpha) / (1 + alpha);
+    z1 = z2 = 0.0;
+  }
 }
 
 Biquad::~Biquad() {
@@ -100,41 +111,64 @@ void Biquad::setBiquad(int type, float f0, float damp, float fs) {
   this->f0 = f0;
   this->damp = damp;
   this->fs = fs;
-  calcBiquad();
+  if (f0 == 0) {
+    b0 = 1;
+    b1 = 0;
+    b2 = 0;
+    //a0 = 1;
+    a1 = 0;
+    a2 = 0;
+    InitStates();
+  }
+  else {
+    calcBiquad();
+  }
 }
 
 void Biquad::setNotch( float f0, float debthdb, float notch_width, float fs) {
-  this->type = bq_type_notch;
-  this->f0 = f0;
-  this->fs = fs;
-  
-  float w0 = 2 * M_PI * f0 / fs;
-  float alpha;
-  float alpha1;
-  if (debthdb < 0) {
-    alpha = notch_width * sin(w0);
-    alpha1 = alpha * pow ( 10 , debthdb / 20);
+  if (debthdb == 0) {
+    b0 = 1;
+    b1 = 0;
+    b2 = 0;
+    //a0 = 1;
+    a1 = 0;
+    a2 = 0;
+    InitStates();
   }
   else {
-    alpha = notch_width * sin(w0) * pow ( 10 , -debthdb / 20);
-    alpha1 = notch_width * sin(w0);
-  }
 
-  b0 =   (1 + alpha1) / (1 + alpha);
-  b1 =  -2 * cos(w0) / (1 + alpha);
-  b2 =   (1 - alpha1) / (1 + alpha);
-  //a0 =   1;
-  a1 =  -2 * cos(w0) / (1 + alpha);
-  a2 =   (1 - alpha) / (1 + alpha);
-  InitStates();
+    this->type = bq_type_notch;
+    this->f0 = f0;
+    this->fs = fs;
+
+    float w0 = 2 * M_PI * f0 / fs;
+    float alpha;
+    float alpha1;
+    if (debthdb < 0) {
+      alpha = notch_width * sin(w0);
+      alpha1 = alpha * pow ( 10 , debthdb / 20);
+    }
+    else {
+      alpha = notch_width * sin(w0) * pow ( 10 , -debthdb / 20);
+      alpha1 = notch_width * sin(w0);
+    }
+
+    b0 =   (1 + alpha1) / (1 + alpha);
+    b1 =  -2 * cos(w0) / (1 + alpha);
+    b2 =   (1 - alpha1) / (1 + alpha);
+    //a0 =   1;
+    a1 =  -2 * cos(w0) / (1 + alpha);
+    a2 =   (1 - alpha) / (1 + alpha);
+    InitStates();
+  }
 }
 
 
 
 
 void Biquad::InitStates( ) {
-	z1 = in * (1-b0);
-	z2 = in * (b2 - a2);
+  z1 = in * (1 - b0);
+  z2 = in * (b2 - a2);
 }
 
 

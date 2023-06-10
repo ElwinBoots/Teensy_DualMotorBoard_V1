@@ -206,7 +206,8 @@ typedef struct mot_state_t {
   float Ki_id_out;
   float Vq_lp_out;
   float Vd_lp_out;
-  
+  float Vq_biquadout;
+  float Vd_biquadout;
   bool SPdir;
   int spNgo;
   
