@@ -542,9 +542,12 @@ void GenSetpoint( mot_conf_t* confX , mot_state_t* stateX , MotionProfile* SPpro
 
   //  stateX->offsetVel_lp = lowpassSP->process( stateX->offsetVel );
 
-  utils_step_towards( &stateX->offsetVel_lp , stateX->offsetVel, 20.0 * motor.conf.T );
-
+  utils_step_towards( &stateX->offsetVel_lp , stateX->offsetVel, 100.0 * motor.conf.T );
   stateX->offsetVelTot += stateX->offsetVel_lp * motor.conf.T;
+  //When no offset velocity is running, always convert reference to nearest encoder count to avoid noise
+  if (stateX->offsetVel_lp == 0) {
+    stateX->offsetVelTot = int((stateX->offsetVelTot / confX->enc2rad)) * confX->enc2rad;
+  }
   stateX->rmech += stateX->offsetVelTot ;
 
   stateX->rmech += stateX->rmechoffset;
@@ -553,10 +556,7 @@ void GenSetpoint( mot_conf_t* confX , mot_state_t* stateX , MotionProfile* SPpro
   stateX->vel = SPprofileX->vref + stateX->offsetVel_lp;
   stateX->we = stateX->vel * confX->N_pp;  //Electrical speed [rad/s], based on setpoint
 
-  //When no setpoint is running, always convert reference to nearest encoder count to avoid noise
-  if (SPprofileX->REFstatus == 0 && stateX->offsetVel_lp == 0) {
-    stateX->rmech = int((stateX->rmech / confX->enc2rad)) * confX->enc2rad;
-  }
+
 
   stateX->rmech += stateX->dist * stateX->rdistgain;
 }
@@ -1146,6 +1146,25 @@ void processCommands( mot_conf_t* confX ,  mot_state_t* stateX ) {
         confX->Command = NO_COMMAND;
         break;
       }
+    case MOVE_BOTH_POS:
+      {
+        motor.state1.SPdir = 1;
+        motor.state2.SPdir = 1;
+        motor.state1.spNgo = 1;
+        motor.state2.spNgo = 1;
+        confX->Command = NO_COMMAND;
+        break;
+      }
+    case MOVE_BOTH_NEG:
+      {
+        motor.state1.SPdir = 0;
+        motor.state2.SPdir = 0;
+        motor.state1.spNgo = 1;
+        motor.state2.spNgo = 1;
+        confX->Command = NO_COMMAND;
+        break;
+      }
+      
   }
 }
 

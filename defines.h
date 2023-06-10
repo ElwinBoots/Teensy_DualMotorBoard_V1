@@ -31,7 +31,9 @@
 enum commands {
   NO_COMMAND = 0,
   UPDATE_CONTROLLER = 1,
-  RESET_ERROR = 2
+  RESET_ERROR = 2,
+  MOVE_BOTH_POS = 3,
+  MOVE_BOTH_NEG = 4
 };
 
 typedef struct mot_conf_t {
