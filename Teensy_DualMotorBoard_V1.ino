@@ -1237,7 +1237,7 @@ void processSerialIn() {
         Serial.readBytes( (char*)&SPprofile1->t1 , 4);
         Serial.readBytes( (char*)&SPprofile1->t2 , 4);
         Serial.readBytes( (char*)&SPprofile1->t3 , 4);
-        Serial.readBytes( (char*)&SPprofile1->p , 4);
+        Serial.readBytes( (char*)&SPprofile1->p , 8);
         Serial.readBytes( (char*)&SPprofile1->v_max , 4);
         Serial.readBytes( (char*)&SPprofile1->a_max , 4);
         Serial.readBytes( (char*)&SPprofile1->j_max , 4);
@@ -1249,7 +1249,7 @@ void processSerialIn() {
         Serial.readBytes( (char*)&SPprofile2->t1 , 4);
         Serial.readBytes( (char*)&SPprofile2->t2 , 4);
         Serial.readBytes( (char*)&SPprofile2->t3 , 4);
-        Serial.readBytes( (char*)&SPprofile2->p , 4);
+        Serial.readBytes( (char*)&SPprofile2->p , 8);
         Serial.readBytes( (char*)&SPprofile2->v_max , 4);
         Serial.readBytes( (char*)&SPprofile2->a_max , 4);
         Serial.readBytes( (char*)&SPprofile2->j_max , 4);

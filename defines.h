@@ -46,7 +46,7 @@ typedef struct mot_conf_t {
   float ss_gain;
   float ss_offset;
   int enccountperrev;
-  float enc2rad;
+  double enc2rad;
   float I_max;
   float T_max;
   float Kp_iq;
@@ -87,17 +87,6 @@ typedef struct mot_conf_t {
 } mot_conf_t;
 
 typedef struct mot_state_t {
-  float a1; 
-  float a2; 
-  float b0; 
-  float b1; 
-  float b2; 
-  float f0; 
-  float damp; 
-  float fs;
-  float z1;
-  float z2;
-  
   float i_vector_radpers_act;
   float BEMFa;
   float BEMFb;
