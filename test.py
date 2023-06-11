@@ -337,40 +337,65 @@ def discrete_lowpass( f0, damping ):
     return ct.TransferFunction( [b0, b1, b2] , [a0, a1, a2]  , float(Ts) )
 
 def vel( vel = 0 , motor = 0 ):
+    if type(vel) == list:
+        vel1 = vel[0]
+        vel2 = vel[1]
+    else:
+        vel1 = vel
+        vel2 = vel
     if motor == 0 or motor == 1:
-        setpar('motor.state1.offsetVel' ,  vel )
+        setpar('motor.state1.offsetVel' ,  vel1 )
     if motor == 0 or motor == 2:
-        setpar('motor.state2.offsetVel' ,  vel )
+        setpar('motor.state2.offsetVel' ,  vel2 )
         
-def pos( pos = 0 , motor = 0 ):
+def pos( target = 0 , motor = 0 , vel = 100 , acc = 1000):
+    if type(target) == list:
+        target1 = target[0]
+        target2 = target[1]
+    else:
+        target1 = target
+        target2 = target
     if motor == 0 or motor == 1:
         enc2rad1 = getsig('c1.enc2rad')
-        pos1 = round(pos/360*2*pi/enc2rad1)*enc2rad1
-        delta = -getsig('motor.state1.rmech') + pos1
+        target1 = round(target1/360*2*pi/enc2rad1)*enc2rad1
+        delta = -getsig('motor.state1.rmech') + target1
         if delta !=0:
-            prepSP( abs(delta) , 100 , 1000 ,500000 , 1)
+            prepSP( abs(delta) , vel , acc ,500000 , 1)
             setpar('motor.state1.SPdir' , delta>0)
             setpar('motor.state1.spNgo', 1)
     if motor == 0 or motor == 2:
         enc2rad2 = getsig('c2.enc2rad')
-        pos2 = round(pos/360*2*pi/enc2rad2)*enc2rad2
-        delta = -getsig('motor.state2.rmech') + pos2
+        target2 = round(target2/360*2*pi/enc2rad2)*enc2rad2
+        delta = -getsig('motor.state2.rmech') + target2
         if delta !=0:
-            prepSP( abs(delta) , 100 , 1000 ,500000 , 2)
+            prepSP( abs(delta) , vel , acc ,500000 , 2)
             setpar('motor.state2.SPdir' , delta>0)
             setpar('motor.state2.spNgo', 1)
-        
+
+def pos_wait( target = 0 , motor = 0 , vel = 100 , acc = 1000):
+    pos( target , motor , vel , acc)
+    while (getsig('motor.state1.REFstatus') > 0  or getsig('motor.state2.REFstatus') > 0 ):
+        bla = 1
+
+
+
 def rel( rel = 0 , motor = 0 ):
+    if type(rel) == list:
+        rel1 = rel[0]
+        rel2 = rel[1]
+    else:
+        rel1 = rel
+        rel2 = rel
     if motor == 0 or motor == 1:
         enc2rad1 = getsig('c1.enc2rad')
-        delta = round(rel/360*2*pi/enc2rad1)*enc2rad1
+        delta = round(rel1/360*2*pi/enc2rad1)*enc2rad1
         if delta !=0:
             prepSP( abs(delta) , 100 , 1000 ,500000 , 1)
             setpar('motor.state1.SPdir' , delta>0)
             setpar('motor.state1.spNgo', 1)
     if motor == 0 or motor == 2:
         enc2rad2 = getsig('c2.enc2rad')
-        delta = round(rel/360*2*pi/enc2rad2)*enc2rad2
+        delta = round(rel2/360*2*pi/enc2rad2)*enc2rad2
         if delta !=0:
             prepSP( abs(delta) , 100 , 1000 ,500000 , 2)
             setpar('motor.state2.SPdir' , delta>0)
@@ -391,11 +416,18 @@ def CL( cont = 2):
     setLowpass( 2 , 3, 0, 0.3 )
     # setNotch( 2 , 1, 590, -20, 0.1 )
     
-    if cont == 1:
+    if cont == 0:
+        BW = 0
+        alpha_i = 0 
+        alpha_1 = 3
+        alpha_2 = 3
+    elif cont == 1:
         BW = 20
         alpha_i = 0 
         alpha_1 = 3
         alpha_2 = 3
+        setLowpass( 1 , 0, BW*6, 0.7 )
+        setLowpass( 2 , 0, BW*6, 0.7 )
     elif cont == 2:
         BW = 50
         alpha_i =6
@@ -420,7 +452,7 @@ def CL( cont = 2):
         alpha_2 = 20
     else:
         BW = 50
-        alpha_i =6
+        alpha_i = 6
         alpha_1 = 3
         alpha_2 = 10
         
@@ -496,7 +528,7 @@ z = ct.TransferFunction( [1, 0] , [1] , float(Ts))
 
 
 # %%
-setTrace([ 'motor.state.encoderPos1','motor.state.encoderPos2','motor.state.IndexFound1','motor.state.IndexFound2'])
+setTrace([ 'motor.state.encoderPos1','motor.state.encodertarget2','motor.state.IndexFound1','motor.state.IndexFound2'])
 df = trace(1);
 
 df.plot()
@@ -566,36 +598,36 @@ setpar('motor.conf2.commutationoffset', -offset2)
 # thetaPark = getsig('motor.state1.thetaPark')
 
 # CONF2
-setpar('motor.conf2.commutationoffset', 0)
+# setpar('motor.conf2.commutationoffset', 0)
 
 
-setpar('motor.state2.Valpha_offset', 0.5)
-time.sleep(0.5)
-Valpha1 = getsig('motor.state2.Valpha_offset')
-Ialpha1 = getsig('motor.state2.Ialpha')
-Ibeta1 = getsig('motor.state2.Ibeta')
-Ia1 = getsig('motor.state2.ia')
-bus1 = getsig('motor.state.sensBus_lp')
+# setpar('motor.state2.Valpha_offset', 0.5)
+# time.sleep(0.5)
+# Valpha1 = getsig('motor.state2.Valpha_offset')
+# Ialpha1 = getsig('motor.state2.Ialpha')
+# Ibeta1 = getsig('motor.state2.Ibeta')
+# Ia1 = getsig('motor.state2.ia')
+# bus1 = getsig('motor.state.sensBus_lp')
 
-setpar('motor.state2.Valpha_offset', 1)
+# setpar('motor.state2.Valpha_offset', 1)
 
-time.sleep(0.5)
-Valpha2 = getsig('motor.state2.Valpha_offset')
-Va = getsig('motor.state2.Va')
-Vb = getsig('motor.state2.Vb')
-Ialpha2 = getsig('motor.state2.Ialpha')
-Ibeta2 = getsig('motor.state2.Ibeta')
-bus2 = getsig('motor.state.sensBus')
-Ia2 = getsig('motor.state2.ia')
+# time.sleep(0.5)
+# Valpha2 = getsig('motor.state2.Valpha_offset')
+# Va = getsig('motor.state2.Va')
+# Vb = getsig('motor.state2.Vb')
+# Ialpha2 = getsig('motor.state2.Ialpha')
+# Ibeta2 = getsig('motor.state2.Ibeta')
+# bus2 = getsig('motor.state.sensBus')
+# Ia2 = getsig('motor.state2.ia')
 
-R = (Valpha2 - Valpha1) / (Ialpha2 - Ialpha1)
+# R = (Valpha2 - Valpha1) / (Ialpha2 - Ialpha1)
 
-offset = getsig('motor.state2.thetaPark_enc')
+# offset = getsig('motor.state2.thetaPark_enc')
 
-setpar('motor.state2.Valpha_offset', 0)
-setpar('motor.conf2.commutationoffset', -offset)
+# setpar('motor.state2.Valpha_offset', 0)
+# setpar('motor.conf2.commutationoffset', -offset)
 
-thetaPark = getsig('motor.state2.thetaPark')
+# thetaPark = getsig('motor.state2.thetaPark')
 
 # Servo motor Wittenstein cyber MSSI 055G
 Lq = 250e-6
@@ -1819,3 +1851,33 @@ bode( P * C , f )
 
 plt.figure(2)
 nyquist( P * C , f )
+
+
+#%% 
+pos([0,180])
+#%% 
+vel([100,-100])
+#%% 
+vel(0)
+
+
+#%% 
+pos_wait([180,0])
+#%% 
+
+v = 1
+a = 6000
+pos_wait([0,180] , vel=v , acc = a)
+pos_wait([180,0], vel=v , acc = a)
+pos_wait([-90,90], vel=v , acc = a)
+pos_wait([-270,-90] , vel=v, acc = a)
+pos_wait([0,180] , vel=v, acc = a)
+pos_wait([180,0], vel=v, acc = a)
+pos_wait([-90,90], vel=v, acc = a)
+pos_wait([-270,-90] , vel=v, acc = a)
+pos_wait([-180,0] , vel=v, acc = a)
+pos_wait([0,-180], vel=v, acc = a)
+pos_wait([90,-90], vel=v, acc = a)
+pos_wait([-90,-270] , vel=v, acc = a)
+pos_wait([180,0] , vel=v, acc = a)
+
