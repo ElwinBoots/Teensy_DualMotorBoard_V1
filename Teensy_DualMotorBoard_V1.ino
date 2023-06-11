@@ -1,28 +1,115 @@
-typedef union {
-  float fp;
-  byte bin[4];
-  unsigned int uint;
-  int sint;
-  bool bl;
-} binaryFloat;
-
 #include <Math.h>
 #include <arm_math.h>
 #include <SPI.h>
 
 #include "Biquad.h"
-#include "ControlTools.h"
+
+//#include "ControlTools.h"
 #include "muziek.c"
 #include "QuadEncoder.h"
 #include "MotionProfile.h"
 #include "defines.h"
+#include "trace.h"
+
+Biquad *lowpass        = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
+Biquad *lowpass_eradpers   = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
+//Biquad *notch          = new Biquad( bq_type_notch , 2315.0, -20.0, 0.1 , 2 * F_PWM );
+
+Biquad *Biquads1[6];
+Biquad *Biquads2[6];
+
+//Current lowpass (now used at sensor level, maybe better at id,iq level?). Doesn't seem to matter much.
+Biquad *lowpassIsens1  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * F_PWM);
+Biquad *lowpassIsens2  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * F_PWM);
+Biquad *lowpassIsens3  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * F_PWM);
+Biquad *lowpassIsens4  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * F_PWM);
+
+//These are now used for power and bus current estimates
+Biquad *lowpassId1  = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
+Biquad *lowpassIq1  = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
+
+Biquad *hfi_lowpass = new Biquad( bq_type_lowpass , 2000 , 0.707, 2 * F_PWM);
+
+// For setpoint
+Biquad *lowpassSP = new Biquad( bq_type_lowpass , 10 , 0.707, 2 * F_PWM);
+
+//fast 180 deg:
+MotionProfile *SPprofile1 = new MotionProfile( 0 , 0.000500000000000000 , 0.0193000000000000 , 0 , 3.14159265358979 , 157.079632679490 , 7853.98163397448 , 15632147.3532855 , 1 / (2 * F_PWM) );
+MotionProfile *SPprofile2 = new MotionProfile( 0 , 0.000500000000000000 , 0.0193000000000000 , 0 , 3.14159265358979 , 157.079632679490 , 7853.98163397448 , 15632147.3532855 , 1 / (2 * F_PWM) );
+
+Biquad *lowpass_ss_offset = new Biquad( bq_type_lowpass , 10 , 0.707, 2 * F_PWM);
+
+//There are 4 hardware quadrature encoder channels available the Teensy 4.x.
+//The Teensy 4.1 Encoders are supported on pins: 0, 1, 2, 3, 4, 5, 7, 30, 31, 33, 36 and 37.
+//WARNING! Pins 0, 5 and 37 share the same internal crossbar connections and are as such exclusive...pick one or the other.  
+//Same thing applies to pins 1 / 36 and 5 / 37.
+QuadEncoder Encoder1(1, 0, 1 , 0 , 3);   //Encoder 1 on pins 0 and 1, index on pin 3
+QuadEncoder Encoder2(2, 30, 31 , 0 , 33);//Encoder 2 on pins 30 and 31, index on pin 33
+
+void initparams( motor_total_t* m ) {
+  m->conf.Ts = 1e6 / (2 * F_PWM);
+  m->conf.T = m->conf.Ts / 1e6;
+  m->conf.Busadc2Vbus = 1 / 4095.0 * 3.3 * ((68.3 + 5.05) / 5.05); //5.1 changed to 5.05 to improve accuracy. May differ board to board.
+  m->conf.V_Bus = 24; //Bus Voltage
+  m->conf.Ndownsample = 1;
+
+  m->state1.OutputOn = true;
+  m->state2.OutputOn = true;
+
+  initmotor( &m->conf1 , &m->state1);
+  initmotor( &m->conf2 , &m->state2);
+
+  m->state.lfsr = 0xACE1u;
+  m->state.ss_f = 1;
+}
+
+void initmotor( mot_conf_t* m , mot_state_t* state ) {
+  m->maxDutyCycle = 0.99;
+  m->adc2A = 1 / 0.09; //With linear hal current sensors ACS711 (31A or 15.5A): These allow for 2 measurements per PWM cycle
+
+  m->enccountperrev = 20000;
+  m->enc2rad = 2 * M_PI / m->enccountperrev;
+  m->I_max = 15; //Max current (peak of the sine wave in a phase)
+  m->max_edeltarad = 0.25f * M_PI;
+
+  m->maxerror = 0.5;
+
+  m->T_max = 1;
+
+  //Motor parameters
+  m->N_pp = 4; //Number of pole pairs
+  m->Ld = 10e-3; //[Henry] Ld induction: phase-zero
+  m->Lq = 10e-3; //[Henry] Lq induction: phase-zero
+  m->Lambda_m = 0.01; //[Weber] Note: on the fly changes of Kt do not adjust this value!
+  m->Kt_Nm_Apeak = 1.5 * m->N_pp * m->Lambda_m ;
+  m->Kp = 0;
+  m->fBW = 50.0;
+  m->alpha1 = 3.0;
+  m->alpha2 = 4.0;
+  m->fInt = m->fBW / 6.0;
+  m->fLP = m->fBW * 6.0;
+}
 
 void setup() {
+  initparams( &motor );
+
   Serial.begin(1);
-  pinMode( engate , OUTPUT);
-  digitalWrite( engate , 1);
- 
-  SPI_init();  // Disable this for DRV8302
+
+  for (int i = 0; i < 6; i++)
+  {
+    Biquads1[i] = new Biquad( bq_type_lowpass , 0 , 0.7, 2 * F_PWM);;
+    Biquads2[i] = new Biquad( bq_type_lowpass , 0 , 0.7, 2 * F_PWM);;
+  }
+
+  pinMode( ENGATE , OUTPUT);
+  digitalWrite( ENGATE , 1); // To be updated!
+  SPI_init( SSPIN );  // Only for DRV8301.
+
+  pinMode( ENGATE2 , OUTPUT);
+  digitalWrite( ENGATE2 , 1); // To be updated!
+  SPI_init( SSPIN2 );  // Only for DRV8301.
+
+  //DRV8302_init( SSPIN2 , 13 ); // Note: pin 13 is also the SCLK pin for communication with DRV8301 and the LED.
   xbar_init();
   adc_init();
   adc_etc_init();
@@ -31,24 +118,20 @@ void setup() {
   syncflexpwm();
   Encoders_init();
 
-  while (Serial.available() > 4) {
-    processSerialIn();
-  }
-
   FLEXPWM2_OUTEN |= FLEXPWM_OUTEN_PWMA_EN( 7 ); // Activate all A channels
   FLEXPWM4_OUTEN |= FLEXPWM_OUTEN_PWMA_EN( 7 ); // Activate all A channels
 
   delay(100); //Allow the lowpass filters in current measurement to settle before calibration
-  setupready = 1;
+  motor.state.setupready = 1;
 }
 
-void SPI_init() {
+void SPI_init( int SSpin ) {
   SPI.begin();
   SPI.beginTransaction(SPISettings( 10e6 , MSBFIRST, SPI_MODE1)); //DRV8301 specsheet: 100 ns -> 10 Mhz. Set correct mode (fallingedgeof the clock).
   pinMode(SSpin, OUTPUT);
   int receivedVal16;
   while (receivedVal16 != 0x1038) {
-  //while (receivedVal16 != 0x1008) {
+    //while (receivedVal16 != 0x1008) {
     digitalWrite(SSpin, LOW);
     receivedVal16 = SPI.transfer16( (0 << 15) | (0x02 << 11) | (1 << 5) | (1 << 4) | (1 << 3) ); //Set 3 PWM inputs mode, disable OC mode
     //receivedVal16 = SPI.transfer16( (0 << 15) | (0x02 << 11)  | (1 << 3) ); //Set 3 PWM inputs mode
@@ -63,6 +146,13 @@ void SPI_init() {
   SPI.endTransaction();
 }
 
+void DRV8302_init( int M_PWM_pin , int OC_ADJ_pin ) {
+  pinMode( M_PWM_pin , OUTPUT);
+  digitalWrite( M_PWM_pin , 1);
+  pinMode( OC_ADJ_pin , OUTPUT);
+  digitalWrite( OC_ADJ_pin , 1);
+}
+
 void xbar_init() {
   CCM_CCGR2 |= CCM_CCGR2_XBAR1(CCM_CCGR_ON);   //turn clock on for xbara1
   xbar_connect(XBARA1_IN_FLEXPWM2_PWM1_OUT_TRIG0, XBARA1_OUT_ADC_ETC_TRIG00); //FlexPWM to adc_etc
@@ -70,21 +160,27 @@ void xbar_init() {
 
 void adc_init() {
   //Tried many configurations, but this seems to be best:
-   ADC1_CFG =   ADC_CFG_OVWREN       //Allow overwriting of the next converted Data onto the existing
-              | ADC_CFG_ADICLK(0)    // input clock select - IPG clock
-              | ADC_CFG_MODE(2)      // 12-bit conversion 0 8-bit conversion 1 10-bit conversion 2  12-bit conversion
-              | ADC_CFG_ADIV(2)      // Input clock / 4
-              | ADC_CFG_ADSTS(0)     // Sample period (ADC clocks) = 3 if ADLSMP=0b
-              | ADC_CFG_ADHSC        // High speed operation
-              | ADC_CFG_ADTRG;       // Hardware trigger selected
-   ADC2_CFG = ADC1_CFG;
- 
-  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_02 &= ~ (1 << 12) ; // disable keeper pin 14, as per manual
-  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_03 &= ~ (1 << 12) ; // disable keeper pin 15, as per manual
-  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_07 &= ~ (1 << 12) ; // disable keeper pin 16, as per manual
-  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_06 &= ~ (1 << 12) ; // disable keeper pin 17, as per manual
-  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_01 &= ~ (1 << 12) ; // disable keeper pin 18, as per manual
-  IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_00 &= ~ (1 << 12) ; // disable keeper pin 19, as per manual
+  ADC1_CFG =   ADC_CFG_OVWREN       //Allow overwriting of the next converted Data onto the existing
+               | ADC_CFG_ADICLK(0)    // input clock select - IPG clock
+               | ADC_CFG_MODE(2)      // 12-bit conversion 0 8-bit conversion 1 10-bit conversion 2  12-bit conversion
+               | ADC_CFG_ADIV(2)      // Input clock / 4
+               | ADC_CFG_ADSTS(0)     // Sample period (ADC clocks) = 3 if ADLSMP=0b
+               | ADC_CFG_ADHSC        // High speed operation
+               | ADC_CFG_ADTRG;       // Hardware trigger selected
+  ADC2_CFG = ADC1_CFG;
+
+  CORE_PIN14_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN15_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN16_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN17_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN18_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN19_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN20_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN21_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+
+  CORE_PIN24_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN25_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
+  CORE_PIN26_PADCONFIG &= ~ (1 << 12) ; // disable keeper pin for analog input, as per manual
 
   //Calibration of ADC
   ADC1_GC |= ADC_GC_CAL;   // begin cal ADC1
@@ -106,31 +202,13 @@ void adc_etc_init() {
   /* Enable the external XBAR trigger0 and trigger1. Trigger4 uses sync mode to get triggered */
   ADC_ETC_CTRL |= 1;  // TRIG_ENABLE
 
-  /* ADC channel, pin numbers
-    7,  // 14/A0  AD_B1_02
-    8,  // 15/A1  AD_B1_03
-    12, // 16/A2  AD_B1_07
-    11, // 17/A3  AD_B1_06
-    6,  // 18/A4  AD_B1_01
-    5,  // 19/A5  AD_B1_00
-    
-    12, // 16/A2  AD_B1_07  M1 Ia
-    8,  // 15/A1  AD_B1_03  M1 Ib
-
-    6,  // 18/A4  AD_B1_01  M1 Va
-    5,  // 19/A5  AD_B1_00  M1 Vb
-
-    11, // 17/A3  AD_B1_06 Vbus
-
-  */
-
   ADC_ETC_TRIG0_CTRL = ADC_ETC_TRIG_CTRL_TRIG_CHAIN(2); //TRIG chain length (0->1, 1->2, etc)
 
   ADC_ETC_TRIG0_CHAIN_1_0 =
     ADC_ETC_TRIG_CHAIN_IE1(0) |
     ADC_ETC_TRIG_CHAIN_B2B1 |
     ADC_ETC_TRIG_CHAIN_HWTS1(1) |
-    ADC_ETC_TRIG_CHAIN_CSEL1(6) |
+    ADC_ETC_TRIG_CHAIN_CSEL1(1) |
     ADC_ETC_TRIG_CHAIN_IE0(0) |
     ADC_ETC_TRIG_CHAIN_B2B0 |
     ADC_ETC_TRIG_CHAIN_HWTS0(1) |
@@ -147,7 +225,7 @@ void adc_etc_init() {
     ADC_ETC_TRIG_CHAIN_IE1(0) |
     ADC_ETC_TRIG_CHAIN_B2B1 |
     ADC_ETC_TRIG_CHAIN_HWTS1(1) |
-    ADC_ETC_TRIG_CHAIN_CSEL1(5) |
+    ADC_ETC_TRIG_CHAIN_CSEL1(3) |
     ADC_ETC_TRIG_CHAIN_IE0(0) |
     ADC_ETC_TRIG_CHAIN_B2B0 |
     ADC_ETC_TRIG_CHAIN_HWTS0(1) |
@@ -157,7 +235,7 @@ void adc_etc_init() {
     ADC_ETC_TRIG_CHAIN_IE0(2) |
     ADC_ETC_TRIG_CHAIN_B2B0 |
     ADC_ETC_TRIG_CHAIN_HWTS0(1) |
-    ADC_ETC_TRIG_CHAIN_CSEL0(5);
+    ADC_ETC_TRIG_CHAIN_CSEL0(0);
 
   attachInterruptVector(IRQ_ADC_ETC0, adcetc0_isr);
   NVIC_ENABLE_IRQ(IRQ_ADC_ETC0);
@@ -170,7 +248,7 @@ void flexpwm2_init() {     //set PWM
   FLEXPWM2_SM0CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
   FLEXPWM2_SM1CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
   FLEXPWM2_SM2CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
-  FLEXPWM2_SM0VAL1 = (uint32_t)((float)F_BUS_ACTUAL / f_pwm - 1) / 2; //Set the modulus value (dictates the frequency)
+  FLEXPWM2_SM0VAL1 = (uint32_t)((float)F_BUS_ACTUAL / F_PWM - 1) / 2; //Set the modulus value (dictates the frequency)
   FLEXPWM2_SM1VAL1 = FLEXPWM2_SM0VAL1;  //Set the modulus value (dictates the frequency)
   FLEXPWM2_SM2VAL1 = FLEXPWM2_SM0VAL1;  //Set the modulus value (dictates the frequency)
   FLEXPWM2_SM0INIT = -FLEXPWM2_SM0VAL1; //Good for center aligned PWM, see manual
@@ -190,7 +268,7 @@ void flexpwm2_init() {     //set PWM
 
   FLEXPWM2_SM0VAL4 = 0 + adc_shift; // adc trigger 1
   FLEXPWM2_SM0VAL5 = FLEXPWM2_SM0VAL1 + adc_shift; // adc trigger 2
-  
+
   //FLEXPWM2_SM2VAL4 = FLEXPWM2_SM0VAL4; // adc trigger 1 to show on digital output 9
   //FLEXPWM2_SM2VAL5 = FLEXPWM2_SM0VAL5; // adc trigger 2 to show on digital output 9
 
@@ -214,7 +292,7 @@ void flexpwm4_init() {     //set PWM
   FLEXPWM4_SM0CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
   FLEXPWM4_SM1CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
   FLEXPWM4_SM2CTRL = FLEXPWM_SMCTRL_FULL | FLEXPWM_SMCTRL_HALF | FLEXPWM_SMCTRL_PRSC(0); //Fixed at no prescaler. Prescaler is only usefull for slow PWM
-  FLEXPWM4_SM0VAL1 = (uint32_t)((float)F_BUS_ACTUAL / f_pwm - 1) / 2; //Set the modulus value (dictates the frequency)
+  FLEXPWM4_SM0VAL1 = (uint32_t)((float)F_BUS_ACTUAL / F_PWM - 1) / 2; //Set the modulus value (dictates the frequency)
   FLEXPWM4_SM1VAL1 = FLEXPWM4_SM0VAL1;  //Set the modulus value (dictates the frequency)
   FLEXPWM4_SM2VAL1 = FLEXPWM4_SM0VAL1;  //Set the modulus value (dictates the frequency)
   FLEXPWM4_SM0INIT = -FLEXPWM4_SM0VAL1; //Good for center aligned PWM, see manual
@@ -268,18 +346,32 @@ void syncflexpwm() {
 }
 
 void Encoders_init() {
+//  Encoder1.setInitConfig();
+//  Encoder1.EncConfig.filterCount = 3; //Bit of filtering to avoid spurious triggering.
+//  Encoder1.EncConfig.filterSamplePeriod = 3; //Bit of filtering to avoid spurious triggering.
+//  Encoder1.EncConfig.INDEXTriggerMode  = 1;
+//  Encoder1.EncConfig.IndexTrigger  = 1;
+//  Encoder1.EncConfig.positionInitialValue = 0;
+//  Encoder1.init();
+//
+//  Encoder2.setInitConfig();
+//  Encoder2.EncConfig.filterCount = 3; //Bit of filtering to avoid spurious triggering.
+//  Encoder2.EncConfig.filterSamplePeriod = 3; //Bit of filtering to avoid spurious triggering.
+//  Encoder2.EncConfig.INDEXTriggerMode = 1;
+//  Encoder2.EncConfig.IndexTrigger  = 1;
+//  Encoder2.EncConfig.positionInitialValue = 0;
+//  Encoder2.init();
   Encoder1.setInitConfig();
-  //Optional filters
-  Encoder1.EncConfig.filterCount = 3; //Bit of filtering to avoid spurious triggering.
-  Encoder1.EncConfig.filterSamplePeriod = 3; //Bit of filtering to avoid spurious triggering.
+  Encoder1.EncConfig.filterCount = 0;
+  Encoder1.EncConfig.filterSamplePeriod = 0; 
   Encoder1.EncConfig.INDEXTriggerMode  = 1;
   Encoder1.EncConfig.IndexTrigger  = 1;
   Encoder1.EncConfig.positionInitialValue = 0;
   Encoder1.init();
 
   Encoder2.setInitConfig();
-  Encoder2.EncConfig.filterCount = 3; //Bit of filtering to avoid spurious triggering.
-  Encoder2.EncConfig.filterSamplePeriod = 3; //Bit of filtering to avoid spurious triggering.
+  Encoder2.EncConfig.filterCount = 0; 
+  Encoder2.EncConfig.filterSamplePeriod = 0; 
   Encoder2.EncConfig.INDEXTriggerMode = 1;
   Encoder2.EncConfig.IndexTrigger  = 1;
   Encoder2.EncConfig.positionInitialValue = 0;
@@ -299,851 +391,780 @@ void adcetc0_isr() {
 
 void adcetc1_isr() {
   ADC_ETC_DONE0_1_IRQ &= 1 << 20;   // clear
-  curtime = micros();
-  is_v7 = (FLEXPWM2_SM0STS & FLEXPWM_SMSTS_CMPF(2));  //is_v7 = True when in v7
+  motor.state.curtime = micros();
+  motor.state.is_v7 = (FLEXPWM2_SM0STS & FLEXPWM_SMSTS_CMPF(2));  //is_v7 = True when in v7
   FLEXPWM2_SM0STS |= FLEXPWM_SMSTS_CMPF(2); //Reset flag
-  sens1 = (ADC_ETC_TRIG0_RESULT_1_0 & 4095) * 0.0008058608; // 4095.0 * 3.3;
-  sens1_lp = lowpassIsens1->process( sens1 );
-  sens3 = ((ADC_ETC_TRIG0_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
-  sens3_lp = lowpassIsens3->process( sens3 );
-  sensBus = (ADC_ETC_TRIG0_RESULT_3_2 & 4095) * Busadc2Vbus;   // 4095.0 * 3.3 * ((68.3+5.05)/5.05);
-  sensBus_lp = lowpass_sensbus->process( sensBus );
-  
-  if (sensBus > V_Bus + 1 ) {
-    //    digitalWrite( chopperpin , HIGH);
+
+  //ADC1:
+  motor.state.sens1 = (ADC_ETC_TRIG0_RESULT_1_0 & 4095) * 0.0008058608; // 4095.0 * 3.3;
+  motor.state.sens1_lp = lowpassIsens1->process( motor.state.sens1 );
+  motor.state.sens3 = ((ADC_ETC_TRIG0_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
+  motor.state.sens3_lp = lowpassIsens3->process( motor.state.sens3 );
+  motor.state.sensBus = (ADC_ETC_TRIG0_RESULT_3_2 & 4095) * motor.conf.Busadc2Vbus;   // 4095.0 * 3.3 * ((68.3+5.05)/5.05);
+  LOWPASS( motor.state.sensBus_lp , motor.state.sensBus, 0.1 ); //1000 Hz when running at 60 kHz
+
+  //ADC2:
+  motor.state.sens2 = (ADC_ETC_TRIG4_RESULT_1_0 & 4095) * 0.0008058608; // 4095.0 * 3.3;
+  motor.state.sens2_lp = lowpassIsens2->process( motor.state.sens2 );
+  motor.state.sens4 = ((ADC_ETC_TRIG4_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
+  motor.state.sens4_lp = lowpassIsens4->process( motor.state.sens4 );
+  motor.state.sensBus2 = (ADC_ETC_TRIG4_RESULT_3_2 & 4095) * motor.conf.Busadc2Vbus;   // 4095.0 * 3.3 * ((68.3+5.05)/5.05);
+
+  // Calculate currents (links sensors to axes, to be improved)
+  if (motor.conf1.useIlowpass == 1)
+  {
+    motor.state1.ia = motor.conf1.adc2A * (motor.state.sens1_lp - motor.state.sens1_calib);
+    motor.state1.ib = motor.conf1.adc2A * (motor.state.sens2_lp - motor.state.sens2_calib);
   }
   else {
-    //    digitalWrite( chopperpin , LOW);
+    motor.state1.ia = motor.conf1.adc2A * (motor.state.sens1 - motor.state.sens1_calib);
+    motor.state1.ib = motor.conf1.adc2A * (motor.state.sens2 - motor.state.sens2_calib);
   }
-  if (sensBus > 45 ) {
-    OutputOn = false;
-    if (firsterror == 0) {
-      firsterror = 41;
-    }
+  motor.state1.ic = -motor.state1.ia - motor.state1.ib;
+  if (motor.conf2.useIlowpass == 1)
+  {
+    motor.state2.ia = motor.conf2.adc2A * (motor.state.sens3_lp - motor.state.sens3_calib);
+    motor.state2.ib = motor.conf2.adc2A * (motor.state.sens4_lp - motor.state.sens4_calib);
   }
-  sens2 = (ADC_ETC_TRIG4_RESULT_1_0 & 4095) * 0.0008058608; // 4095.0 * 3.3;
-  sens2_lp = lowpassIsens2->process( sens2 );
-  sens4 = ((ADC_ETC_TRIG4_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
-  sens4_lp = lowpassIsens4->process( sens4 );
-  if (setupready == 1) {
-    if (n_senscalib < 1e4) {
-      n_senscalib++;
-      sens1_calib += sens1_lp;
-      sens2_calib += sens2_lp;
-      sens3_calib += sens3_lp;
-      sens4_calib += sens4_lp;
+  else {
+    motor.state2.ia = motor.conf2.adc2A * (motor.state.sens3 - motor.state.sens3_calib);
+    motor.state2.ib = motor.conf2.adc2A * (motor.state.sens4 - motor.state.sens4_calib);
+  }
+  motor.state2.ic = -motor.state2.ia - motor.state2.ib;
+
+  //
+  //  if ( motor.state.sensBus > motor.conf.V_Bus + 1 ) {
+  //    //    digitalWrite( CHOPPERPIN , HIGH);
+  //  }
+  //  else {
+  //    //    digitalWrite( CHOPPERPIN , LOW);
+  //  }
+  if ( motor.state.sensBus > 45 or motor.state.sensBus2 > 45 ) {
+    error(41 , &motor.state1);
+  }
+  if ( motor.state.sensBus2 > 45  ) {
+    error(41 , &motor.state2);
+  }
+
+  if (motor.state.setupready == 1) {
+    if (motor.state.n_senscalib < 1e4) {
+      // Have to check this. Calibration not always ok.
+      motor.state.n_senscalib++;
+      motor.state.sens1_calib += motor.state.sens1_lp;
+      motor.state.sens2_calib += motor.state.sens2_lp;
+      motor.state.sens3_calib += motor.state.sens3_lp;
+      motor.state.sens4_calib += motor.state.sens4_lp;
     }
-    else if (n_senscalib == 1e4) {
-      sens1_calib /= n_senscalib;
-      sens2_calib /= n_senscalib;
-      sens3_calib /= n_senscalib;
-      sens4_calib /= n_senscalib;
-      n_senscalib++;
+    else if (motor.state.n_senscalib == 1e4) {
+      motor.state.sens1_calib /= motor.state.n_senscalib;
+      motor.state.sens2_calib /= motor.state.n_senscalib;
+      motor.state.sens3_calib /= motor.state.n_senscalib;
+      motor.state.sens4_calib /= motor.state.n_senscalib;
+      motor.state.n_senscalib++;
     }
     else {
       updateDisturbance(); //Switched this before readENC to have a fresher encoder position
-      GenSetpoint();
+      GenSetpoint( &motor.conf1 , &motor.state1 , SPprofile1 );
+      GenSetpoint( &motor.conf2 , &motor.state2 , SPprofile2 );
       readENC();
-      Control();
-      Transforms();
+      Control( &motor.conf1 , &motor.state1 , Biquads1);
+      Control( &motor.conf2 , &motor.state2 , Biquads2);
+      Transforms( &motor.conf1 , &motor.state1 , Biquads1);
+      Transforms( &motor.conf2 , &motor.state2 , Biquads2);
+
+      current_and_duty_limts( &motor.conf1 , &motor.state1 );
+      current_and_duty_limts( &motor.conf2 , &motor.state2 );
       changePWM();
       communicationProcess();
+      processCommands( &motor.conf1 , &motor.state1);
+      processCommands( &motor.conf2 , &motor.state2);
+      motor.state.curloop++;
     }
   }
 }
+
 
 void updateDisturbance() {
   //PRBS
-  downsamplePRBS++;
-  if ( downsamplePRBS > NdownsamplePRBS) {
-    downsamplePRBS = 1;
-    noisebit  = ((lfsr >> 5) ^ (lfsr >> 7) ) & 1;  // taps: 11 9; feedback polynomial: x^11 + x^9 + 1
-    lfsr =  (lfsr >> 1) | (noisebit << 15);
+  motor.state.downsamplePRBS++;
+  if ( motor.state.downsamplePRBS > motor.conf.NdownsamplePRBS) {
+    motor.state.downsamplePRBS = 1;
+    motor.state.noisebit  = ((motor.state.lfsr >> 5) ^ (motor.state.lfsr >> 7) ) & 1;  // taps: 11 9; feedback polynomial: x^11 + x^9 + 1
+    motor.state.lfsr =  (motor.state.lfsr >> 1) | (motor.state.noisebit << 15);
   }
 
   //Single Sine
-  if ( curtime / 1e6 >= (ss_tstart + ss_n_aver / ss_f )) {
-    ss_f += ss_fstep;
-    ss_tstart = curtime / 1e6;
-    if (ss_f > ss_fend)
+  if ( motor.state.curtime / 1e6 >= (motor.state.ss_tstart + motor.conf.ss_n_aver / motor.state.ss_f )) {
+    motor.state.ss_f += motor.conf.ss_fstep;
+    motor.state.ss_tstart = motor.state.curtime / 1e6;
+    if (motor.state.ss_f > motor.conf.ss_fend)
     {
-      ss_f = 0;
-      ss_phase = 0;
-      ss_tstart = 1e8;
-      ss_gain = 0;
-      ss_offset = 0;
+      motor.state.ss_f = 0;
+      motor.state.ss_phase = 0;
+      motor.state.ss_tstart = 1e8;
+      motor.conf1.ss_gain = 0;
+      motor.conf1.ss_offset = 0;
+      motor.conf2.ss_gain = 0;
+      motor.conf2.ss_offset = 0;
     }
   }
-  ss_phase += ss_f * 2 * M_PI * T;
-  if ( ss_phase >= 2 * M_PI) {
-    ss_phase -= 2 * M_PI; //Required, because high value floats are inaccurate
+  motor.state.ss_phase += motor.state.ss_f * 2 * M_PI * motor.conf.T;
+  if ( motor.state.ss_phase >= 2 * M_PI) {
+    motor.state.ss_phase -= 2 * M_PI; //Required, because high value floats are inaccurate
   }
-  float ss_offset_lp = lowpass_ss_offset->process( ss_offset );
-  //ss_out = ss_offset_lp + ss_gain * arm_sin_f32( ss_phase ); //sin() measured to be faster then sinf(); arm_sin_f32() is way faster!
-  ss_out = ss_offset_lp + ss_gain * sin( ss_phase );
-  dist = distval * 1 * (noisebit - 0.5) + distoff + ss_out;
+  float ss_offset_lp1 = lowpass_ss_offset->process( motor.conf1.ss_offset );
+  float ss_offset_lp2 = lowpass_ss_offset->process( motor.conf2.ss_offset );
+  //motor.state.ss_out = ss_offset_lp + motor.conf1.ss_gain * arm_sin_f32( motor.state.ss_phase ); //sin() measured to be faster then sinf(); arm_sin_f32() is way faster!
+  float sin_phase = sin( motor.state.ss_phase );
+  motor.state1.ss_out = ss_offset_lp1 + motor.conf1.ss_gain * sin_phase;
+  motor.state2.ss_out = ss_offset_lp2 + motor.conf2.ss_gain * sin_phase;
+  motor.state1.dist = motor.state1.distval * 1 * (motor.state.noisebit - 0.5) + motor.state1.distoff + motor.state1.ss_out;
+  motor.state2.dist = motor.state2.distval * 1 * (motor.state.noisebit - 0.5) + motor.state2.distoff + motor.state2.ss_out;
 }
 
-void GenSetpoint() {
-  SPprofile->REFidir = SPdir;
-  SPprofile->rdelay = rdelay;
 
-  if (SPprofile->REFstatus != 1) { // if not running SP
-    SPprofile->REFstatus = 0; //Make sure sp generator is ready for sp generation
-    if (spNgo > 0) {
-      spGO = 1;
-      spNgo -= 1;
+void GenSetpoint( mot_conf_t* confX , mot_state_t* stateX , MotionProfile* SPprofileX ) {
+  SPprofileX->REFidir = stateX->SPdir;
+  SPprofileX->rdelay = stateX->rdelay;
+
+  if (SPprofileX->REFstatus != 1) { // if not running SP
+    SPprofileX->REFstatus = 0; //Make sure sp generator is ready for sp generation
+    if (stateX->spNgo > 0) {
+      stateX->spGO = 1;
+      stateX->spNgo -= 1;
     }
     else {
-      spGO = 0;
+      stateX->spGO = 0;
     }
   }
-  REFstatus = SPprofile->REFstatus;
-  rmech = SPprofile->stateCalculation( spGO );
+  stateX->REFstatus = SPprofileX->REFstatus;
+  stateX->rmech = SPprofileX->stateCalculation( stateX->spGO );
 
-  offsetVel_lp = lowpassSP->process( offsetVel );
-  offsetVelTot += offsetVel_lp * T;
-  rmech += offsetVelTot ;
+  //  stateX->offsetVel_lp = lowpassSP->process( stateX->offsetVel );
 
-  rmech2 = -rmech;
-  rmech  += rmechoffset;
-  rmech2 += rmechoffset2;
-
-  acc = SPprofile->aref;
-  vel = SPprofile->vref + offsetVelTot;
-  we = vel * N_pp;  //Electrical speed [rad/s], based on setpoint
-  
-  acc2 = -acc;
-  vel2 = -vel;
-
-  //When no setpoint is running, always convert reference to nearest encoder count to avoid noise
-  if (SPprofile->REFstatus == 0 && offsetVel_lp == 0) {
-    rmech = int((rmech / enc2rad)) * enc2rad;
+  utils_step_towards( &stateX->offsetVel_lp , stateX->offsetVel, 100.0 * motor.conf.T );
+  stateX->offsetVelTot += stateX->offsetVel_lp * motor.conf.T;
+  //When no offset velocity is running, always convert reference to nearest encoder count to avoid noise
+  if (stateX->offsetVel_lp == 0) {
+    stateX->offsetVelTot = int((stateX->offsetVelTot / confX->enc2rad)) * confX->enc2rad;
   }
-  if (SPprofile->REFstatus == 0 && offsetVel_lp == 0) {
-    rmech2 = int((rmech2 / enc2rad2)) * enc2rad2;
-  }
+  stateX->rmech += stateX->offsetVelTot ;
 
+  stateX->rmech += stateX->rmechoffset;
+
+  stateX->acc = SPprofileX->aref;
+  stateX->vel = SPprofileX->vref + stateX->offsetVel_lp;
+  stateX->we = stateX->vel * confX->N_pp;  //Electrical speed [rad/s], based on setpoint
+
+
+
+  stateX->rmech += stateX->dist * stateX->rdistgain;
 }
-
 
 void readENC() {
-  encoderPos1 = Encoder1.read();
-  encoderPos2 = Encoder2.read();
-  IndexFound1 = Encoder1.indexfound();
-  IndexFound2 = Encoder2.indexfound();
+  // Linking between encoders and axes to be improved
+  motor.state.encoderPos1 = Encoder1.read();
+  motor.state.encoderPos2 = Encoder2.read();
+  motor.state.IndexFound1 = Encoder1.indexfound();
+  motor.state.IndexFound2 = Encoder2.indexfound();
+
+  motor.state1.encoderPos1 = motor.state.encoderPos1;
+  motor.state1.IndexFound1 = motor.state.IndexFound1;
+
+  motor.state2.encoderPos1 = motor.state.encoderPos2;
+  motor.state2.IndexFound1 = motor.state.IndexFound2;
 }
 
-void Control() {
-  ymech1 = encoderPos1 * enc2rad;
-  ymech2 = encoderPos2 * enc2rad2;
-  if (hfi_useforfeedback == 1) {
-    ymech1 = hfi_abs_pos / N_pp;
-  }
-  emech1 = rmech - ymech1;
-  emech2 = rmech2 - ymech2;
-  if (haptic == 1) {
-    emech1 = rmech - ymech1 - ymech2;
-    emech2 = 0;
-  }
+void Control( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX) {
+  stateX->ymech = stateX->encoderPos1 * confX->enc2rad * confX->enc_transmission;
 
-  if ((abs(emech1) > 0.5) & (Kp > 0) )
+  if (stateX->hfi_useforfeedback == 1) {
+    stateX->ymech = stateX->hfi_abs_pos / confX->N_pp;
+  }
+  stateX->emech = stateX->rmech - stateX->ymech;
+
+  if ((abs(stateX->emech) > confX->maxerror) & (confX->Kp > 0) )
   {
-    OutputOn = false;
-    if (firsterror == 0) {
-      firsterror = 1;
-    }
+    error(1 , stateX);
   }
-  if (OutputOn == false) {
-    emech1 = 0;
-    integrator->setState(0);
-    lowpass->InitStates(0);
-  }
-  //  if (abs(emech2) > 0.5 & Kp2 > 0 )
-  //  {
-  //    OutputOn = false;
-  //    if (firsterror == 0) {
-  //      firsterror = 21;
-  //    }
-  //  }
-  if (OutputOn == false) {
-    emech2 = 0;
-    integrator2->setState(0);
-    lowpass2->InitStates(0);
-  }
-  if (Kp == 0) {
-    integrator->setState(0);
-  }
-  if (Kp2 == 0) {
-    integrator2->setState(0);
+  if (stateX->OutputOn == false) {
+    stateX->emech = 0;
+    stateX->Ki_sum = 0;
   }
 
-  mechcontout = Kp * leadlag->process( emech1 );
-  mechcontout = lowpass->process( mechcontout );
-
-  mechcontout2 = Kp2 * leadlag2->process( emech2 );
-  mechcontout2 = lowpass2->process( mechcontout2 );
-
-  // Clipping to be improved...
-  Iout = integrator->processclip( mechcontout , -I_max * (1.5 * N_pp * Lambda_m ) - mechcontout , I_max * (1.5 * N_pp * Lambda_m ) - mechcontout );
-  Iout2 = integrator2->processclip( mechcontout2 , -I_max * Kt_Nm_Apeak2 - mechcontout2 , I_max * Kt_Nm_Apeak2 - mechcontout2 );
-
-  mechcontout += Iout;
-  mechcontout += acc * Jload * OutputOn;
-  mechcontout += vel * velFF * OutputOn;
-  mechcontout += dist * mechdistgain;
-
-  mechcontout2 += Iout2;
-  mechcontout2 += acc2 * Jload2 * OutputOn;
-  mechcontout2 += vel2 * velFF2 * OutputOn;
-  mechcontout2 += dist * mechdistgain;
-
-  if (haptic == 1) {
-    mechcontout2 = mechcontout;
+  if (confX->Kp == 0) {
+    stateX->Ki_sum = 0;
   }
 
+  stateX->Kp_out = confX->Kp * stateX->emech;
 
-  if (OutputOn == false) {
-    vq_int_state = 0;
-    vd_int_state = 0;
-    integrator_Id2->setState(0);
-    integrator_Iq2->setState(0);
+  stateX->Kd_out = confX->Kd * (stateX->Kp_out - stateX->Kp_out_prev) + stateX->Kp_out;
+  stateX->Kp_out_prev = stateX->Kp_out;
+
+  stateX->Ki_sum += confX->Ki * stateX->Kd_out;
+  truncate_number_abs(&stateX->Ki_sum, confX->T_max);
+
+  stateX->Ki_out = stateX->Ki_sum + stateX->Kd_out;
+
+  LOWPASS( stateX->lp_out, stateX->Ki_out, confX->lowpass_c);
+
+  stateX->biquadout = stateX->lp_out;
+  for ( int i = 0; i < 4; i++) {
+    stateX->biquadout = BiquadsX[i]->process( stateX->biquadout );
   }
 
-  Iq_SP = mechcontout / (1.5 * N_pp * Lambda_m );
+  stateX->mechcontout = stateX->biquadout + stateX->dist * stateX->mechdistgain;
 
-  Iq_SP2 = mechcontout2 / Kt_Nm_Apeak2;
+  stateX->T_FF_acc = stateX->acc * stateX->Jload;
+  stateX->T_FF_vel = stateX->vel * stateX->velFF;
+  if (stateX->OutputOn) {
+    stateX->mechcontout += stateX->T_FF_acc;
+    stateX->mechcontout += stateX->T_FF_vel;    
+    stateX->vq_int_state = 0;
+    stateX->vd_int_state = 0;
+  }
+
+  stateX->Iq_SP = stateX->mechcontout / (1.5 * confX->N_pp * confX->Lambda_m );
 }
 
-void Transforms()
+void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
 {
-  // Calculate currents
-  if (useIlowpass == 1)
-  {
-    ia = adc2A1 * (sens1_lp - sens1_calib);
-    ib = adc2A1 * (sens2_lp - sens2_calib);
-    ia2 = adc2A2 * (sens3_lp - sens3_calib);
-    ib2 = adc2A2 * (sens4_lp - sens4_calib);
-  }
-  else {
-    ia = adc2A1 * (sens1 - sens1_calib);
-    ib = adc2A1 * (sens2 - sens2_calib);
-    ia2 = adc2A2 * (sens3 - sens3_calib);
-    ib2 = adc2A2 * (sens4 - sens4_calib);
-  }
-
-  // For Park and Clarke see https://www.cypress.com/file/222111/download
-  // Power-variant Clarke transform. Asuming ia+ib+ic=0:
-  Ialpha = ia;
-  Ibeta = one_by_sqrt3 * ia + two_by_sqrt3 * ib;
-
-  Ialpha2 = ia2;
-  Ibeta2 = one_by_sqrt3 * ia2 + two_by_sqrt3 * ib2;
+  // For Park and Clarke see https://www.cypress.com/file/222111/download Power-variant Clarke transform. Asuming ia+ib+ic=0:
+  stateX->Ialpha = stateX->ia;
+  stateX->Ibeta = ONE_BY_SQRT3 * stateX->ia + TWO_BY_SQRT3 * stateX->ib;
 
   // Park transform, ride the wave option
-  thetaPark_enc = N_pp * (encoderPos1 % enccountperrev) * enc2rad + commutationoffset; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
-  if (revercommutation1) {
-    thetaPark_enc *= -1;
+  stateX->thetaPark_enc = confX->N_pp * (stateX->encoderPos1 % confX->enccountperrev) * confX->enc2rad + confX->commutationoffset; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
+  if (confX->reversecommutation) {
+    stateX->thetaPark_enc *= -1;
   }
-  while ( thetaPark_enc >= 2 * M_PI) {
-    thetaPark_enc -= 2 * M_PI;
+  while ( stateX->thetaPark_enc >= 2 * M_PI) {
+    stateX->thetaPark_enc -= 2 * M_PI;
   }
-  while ( thetaPark_enc < 0) {
-    thetaPark_enc += 2 * M_PI;
+  while ( stateX->thetaPark_enc < 0) {
+    stateX->thetaPark_enc += 2 * M_PI;
   }
 
   //Angle observer by mxlemming
-  float L = (Ld + Lq) / 2;
-  BEMFa = BEMFa + (Valpha - R * Ialpha) * T -
-          L * (Ialpha - Ialpha_last);
-  BEMFb = BEMFb + (Vbeta - R * Ibeta) * T -
-          L * (Ibeta - Ibeta_last)  ;
-  Ialpha_last = Ialpha;
-  Ibeta_last = Ibeta;
-  if (BEMFa > Lambda_m  ) {
-    BEMFa = Lambda_m ;
+  float L = (confX->Ld + confX->Lq) / 2;
+  stateX->BEMFa = stateX->BEMFa + (stateX->Valpha - stateX->R * stateX->Ialpha) * motor.conf.T -
+                  L * (stateX->Ialpha - stateX->Ialpha_last);
+  stateX->BEMFb = stateX->BEMFb + (stateX->Vbeta - stateX->R * stateX->Ibeta) * motor.conf.T -
+                  L * (stateX->Ibeta - stateX->Ibeta_last)  ;
+  stateX->Ialpha_last = stateX->Ialpha;
+  stateX->Ibeta_last = stateX->Ibeta;
+  if (stateX->BEMFa > confX->Lambda_m  ) {
+    stateX->BEMFa = confX->Lambda_m ;
   }
-  if (BEMFa < -Lambda_m ) {
-    BEMFa = -Lambda_m ;
+  if (stateX->BEMFa < -confX->Lambda_m ) {
+    stateX->BEMFa = -confX->Lambda_m ;
   }
-  if (BEMFb > Lambda_m ) {
-    BEMFb = Lambda_m ;
+  if (stateX->BEMFb > confX->Lambda_m ) {
+    stateX->BEMFb = confX->Lambda_m ;
   }
-  if (BEMFb < -Lambda_m ) {
-    BEMFb = -Lambda_m ;
+  if (stateX->BEMFb < -confX->Lambda_m ) {
+    stateX->BEMFb = -confX->Lambda_m ;
   }
-  thetaPark_obs = atan2(BEMFb, BEMFa);
+  stateX->thetaPark_obs = atan2(stateX->BEMFb, stateX->BEMFa);
 
-  while ( thetaPark_obs >= 2 * M_PI) {
-    thetaPark_obs -= 2 * M_PI;
+  while ( stateX->thetaPark_obs >= 2 * M_PI) {
+    stateX->thetaPark_obs -= 2 * M_PI;
   }
-  while ( thetaPark_obs < 0) {
-    thetaPark_obs += 2 * M_PI;
+  while ( stateX->thetaPark_obs < 0) {
+    stateX->thetaPark_obs += 2 * M_PI;
   }
   //Check and remove nan
-  if (thetaPark_obs != thetaPark_obs) {
-    thetaPark_obs = thetaPark_obs_prev;
+  if (stateX->thetaPark_obs != stateX->thetaPark_obs) {
+    stateX->thetaPark_obs = stateX->thetaPark_obs_prev;
   }
-  thetaPark_obs_prev = thetaPark_obs;
+  stateX->thetaPark_obs_prev = stateX->thetaPark_obs;
 
 
-
-  //Angle observer (VESC)
-  float L_ia = L * Ialpha;
-  float L_ib = L * Ibeta;
-  float gamma_half = observer_gain * 0.5;
-
-  float err = sq(Lambda_m) - (sq(x1 - L_ia) + sq(x2 - L_ib));
-  if (err > 0.0) {
-    err = 0.0;
+  if (confX->anglechoice == 0) {
+    stateX->thetaPark = stateX->thetaPark_enc;
   }
-
-  // Misschien Valpha en beta nog wat draaien voor motor rotatie?
-  float x1_dot = Valpha - R * Ialpha + gamma_half * (x1 - L_ia) * err;
-  float x2_dot = Vbeta  - R * Ibeta  + gamma_half * (x2 - L_ib) * err;
-  x1 += x1_dot * T;
-  x2 += x2_dot * T;
-
-  UTILS_NAN_ZERO(x1);
-  UTILS_NAN_ZERO(x2);
-
-  // Prevent the magnitude from getting too low, as that makes the angle very unstable.
-  float mag = NORM2_f(x1, x2);
-  if (mag < (Lambda_m * 0.5)) {
-    x1 *= 1.1;
-    x2 *= 1.1;
+  else if (confX->anglechoice == 1) {
+    stateX->thetaPark = stateX->thetaPark_obs;
   }
-  thetaPark_vesc = atan2( x2 - L_ib, x1 - L_ia);
-  while ( thetaPark_vesc >= 2 * M_PI) {
-    thetaPark_vesc -= 2 * M_PI;
+  else if (confX->anglechoice == 3 ) {
+    if ( abs(stateX->vel) < stateX->hfi_maxvel ) {
+      stateX->hfi_on = true;
+      stateX->thetaPark = stateX->hfi_dir;
+    }
+    else {
+      stateX->hfi_on = false;
+      stateX->thetaPark = stateX->thetaPark_obs;
+    }
   }
-  while ( thetaPark_vesc < 0) {
-    thetaPark_vesc += 2 * M_PI;
+  else if (confX->anglechoice == 99) {
+    utils_step_towards((float*)&stateX->i_vector_radpers_act, stateX->i_vector_radpers, stateX->i_vector_acc * motor.conf.T );
+    stateX->thetaPark += motor.conf.T * stateX->i_vector_radpers_act;
   }
-  if (x1 > Lambda_m  ) {
-    x1 = Lambda_m ;
-  }
-  if (x1 < -Lambda_m ) {
-    x1 = -Lambda_m ;
-  }
-  if (x2 > Lambda_m ) {
-    x2 = Lambda_m ;
-  }
-  if (x2 < -Lambda_m ) {
-    x2 = -Lambda_m ;
-  }
-
-
-
-  if (anglechoice == 0) {
-    thetaPark = thetaPark_enc;
-  }
-  else if (anglechoice == 1) {
-    thetaPark = thetaPark_obs;
-  }
-  else if (anglechoice == 2) {
-    thetaPark = thetaPark_vesc;
-  }
-  else if (anglechoice == 3 ) {
-    if( abs(vel) < hfi_maxvel ){
-        hfi_on = true;
-        thetaPark = hfi_dir;
-        }
-     else{
-        hfi_on = false;
-        thetaPark = thetaPark_obs;
-     }
-  }
-  else if (anglechoice == 99) {
-    utils_step_towards((float*)&i_vector_radpers_act, i_vector_radpers, i_vector_acc * T );
-    thetaPark += T * i_vector_radpers_act;
+  else if (confX->anglechoice == 100) {
+    //Empty such that thethaPark can be set from host.
   }
   else {
-    thetaPark = 0;
+    stateX->thetaPark = 0;
   }
 
   // Phase advance
-  thetaPark += eradpers_lp * T * advancefactor;
+  stateX->thetaPark += stateX->eradpers_lp * motor.conf.T * confX->advancefactor;
 
-  while ( thetaPark >= 2 * M_PI) {
-    thetaPark -= 2 * M_PI;
+  while ( stateX->thetaPark >= 2 * M_PI) {
+    stateX->thetaPark -= 2 * M_PI;
   }
-  while ( thetaPark < 0) {
-    thetaPark += 2 * M_PI;
+  while ( stateX->thetaPark < 0) {
+    stateX->thetaPark += 2 * M_PI;
   }
 
   // erpm estimator
-  edeltarad = thetaPark - thetaParkPrev;
-  if (edeltarad > M_PI) {
-    edeltarad -= 2 * M_PI;
+  stateX->edeltarad = stateX->thetaPark - stateX->thetaParkPrev;
+  if (stateX->edeltarad > M_PI) {
+    stateX->edeltarad -= 2 * M_PI;
   }
-  if (edeltarad < -M_PI) {
-    edeltarad += 2 * M_PI;
+  if (stateX->edeltarad < -M_PI) {
+    stateX->edeltarad += 2 * M_PI;
   }
-  //Limit change of thetaPark to 45 deg per cycle:
-  if (edeltarad > max_edeltarad) {
-    edeltarad = max_edeltarad;
-    thetaPark = thetaParkPrev + edeltarad;
+  //Limit change of stateX->thetaPark to 45 deg per cycle:
+  if (stateX->edeltarad > confX->max_edeltarad) {
+    stateX->edeltarad = confX->max_edeltarad;
+    stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
   }
-  else if (edeltarad < -max_edeltarad) {
-    edeltarad = -max_edeltarad;
-    thetaPark = thetaParkPrev + edeltarad;
+  else if (stateX->edeltarad < -confX->max_edeltarad) {
+    stateX->edeltarad = -confX->max_edeltarad;
+    stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
   }
-  eradpers_lp = lowpass_eradpers->process( edeltarad / T );
-  erpm = eradpers_lp * 60 / 2 / M_PI;
-  thetaParkPrev = thetaPark;
-  hfi_abs_pos += edeltarad;
+  stateX->eradpers_lp = lowpass_eradpers->process( stateX->edeltarad / motor.conf.T );
+  stateX->erpm = stateX->eradpers_lp * 60 / (2 * M_PI);
+  stateX->thetaParkPrev = stateX->thetaPark;
+  stateX->hfi_abs_pos += stateX->edeltarad;
 
-  //  thetaPark2 = 8 * (encoderPos2 % enccountperrev2) * enc2rad2 + commutationoffset2; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
-  //  while ( thetaPark2 >= 2 * M_PI) {
-  //    thetaPark2 -= 2 * M_PI;
-  //  }
-  //  while ( thetaPark2 < 0) {
-  //    thetaPark2 += 2 * M_PI;
-  //  }
-
-  if (ridethewave == 1 ) {
-    if ((IndexFound1) < 1 ) {
-      thetaPark = thetawave;
-      thetawave -= 10 * 2 * M_PI * T;
-      Vq = 1.5;
+  if (confX->ridethewave == 1 ) {
+    if ((stateX->IndexFound1) < 1 ) {
+      stateX->thetaPark = stateX->thetawave;
+      stateX->thetawave -= 10 * 2 * M_PI * motor.conf.T;
+      stateX->Vq = 1.5;
     }
     else {
-      Vq = 0;
-      ridethewave = 2;
-      thetawave = 0;
+      stateX->Vq = 0;
+      confX->ridethewave = 2;
+      stateX->thetawave = 0;
     }
   }
 
-  if (ridethewave2 == 1 ) {
-    if ((IndexFound2) < 1 ) {
-      thetaPark2 = thetawave2;
-      thetawave2 -= 10 * 2 * M_PI * T;
-      Vq2 = 1.5;
-    }
-    else {
-      Vq2 = 0;
-      ridethewave2 = 2;
-      thetawave2 = 0;
-    }
-  }
+  stateX->Iq_SP += stateX->muziek_gain * muziek[ (motor.state.curloop / (50 / (int)motor.conf.Ts)) % (sizeof(muziek) / 4) ];
+  stateX->Iq_SP += stateX->dist * stateX->Iq_distgain;
 
-  Iq_SP += muziek_gain * muziek[ (curloop / (50 / (int)Ts)) % (sizeof(muziek) / 4) ];
-  Iq_SP += dist * Iq_distgain;
+  stateX->Iq_SP += stateX->Iq_offset_SP;
 
-  Iq_SP += Iq_offset_SP;
+  stateX->Id_SP = stateX->Id_offset_SP;
+  stateX->Id_SP += stateX->dist * stateX->Id_distgain;
 
-  Id_SP = Id_offset_SP;
-  Id_SP += dist * Id_distgain;
-
-  Iq_SP2 += muziek_gain * muziek[ (curloop / (50 / (int)Ts)) % (sizeof(muziek) / 4) ];
-  Iq_SP2 += dist * Iq_distgain;
-
-  Id_SP2 = Id_offset_SP2;
-  Id_SP2 += dist * Id_distgain;
-
-  co = cos(thetaPark);
-  si = sin(thetaPark);
-
-  co2 = cos(thetaPark2);
-  si2 = sin(thetaPark2);
+  stateX->co = cos(stateX->thetaPark);
+  stateX->si = sin(stateX->thetaPark);
 
 
   // Park transform
-  Id_meas = co * Ialpha + si * Ibeta;
-  Iq_meas = co * Ibeta  - si * Ialpha;
+  stateX->Id_meas = stateX->co * stateX->Ialpha + stateX->si * stateX->Ibeta;
+  stateX->Iq_meas = stateX->co * stateX->Ibeta  - stateX->si * stateX->Ialpha;
 
-  Id_meas_lp = lowpassId1->process( Id_meas );
-  Iq_meas_lp = lowpassIq1->process( Iq_meas );
+  //  stateX->Id_meas_lp = lowpassId1->process( stateX->Id_meas );
+  //  stateX->Iq_meas_lp = lowpassIq1->process( stateX->Iq_meas );
 
-  Id_meas2 = co2 * Ialpha2 + si2 * Ibeta2;
-  Iq_meas2 = co2 * Ibeta2  - si2 * Ialpha2;
-  Id_meas2_lp = lowpassId2->process( Id_meas2 );
-  Iq_meas2_lp = lowpassIq2->process( Iq_meas2 );
+  LOWPASS( stateX->Id_meas_lp, stateX->Id_meas, 0.005 ); //50 Hz when running at 60 kHz
+  LOWPASS( stateX->Iq_meas_lp, stateX->Iq_meas, 0.005 );
 
-
-  P_tot = 1.5 * ( Vq * Iq_meas_lp + Vd * Id_meas_lp);
-  I_bus = P_tot / sensBus_lp;
+  stateX->P_tot = 1.5 * ( stateX->Vq * stateX->Iq_meas_lp + stateX->Vd * stateX->Id_meas_lp);
+  stateX->I_bus = stateX->P_tot / motor.state.sensBus_lp;
 
   // HFI
-  if ( hfi_on ) {
-    hfi_V_act = hfi_V;
-    if (hfi_firstcycle) {
-      hfi_V_act /= 2;
-      hfi_firstcycle = false;
+  if ( stateX->hfi_on ) {
+    stateX->hfi_V_act = stateX->hfi_V;
+    if (stateX->hfi_firstcycle) {
+      stateX->hfi_V_act /= 2;
+      stateX->hfi_firstcycle = false;
     }
-    if (hfi_V != hfi_prev){
-      hfi_V_act = hfi_prev + (hfi_V-hfi_prev)/2;
+    if (stateX->hfi_V != stateX->hfi_prev) {
+      stateX->hfi_V_act = stateX->hfi_prev + (stateX->hfi_V - stateX->hfi_prev) / 2;
     }
-    if (is_v7) {
-      hfi_Id_meas_high = Id_meas;
-      hfi_Iq_meas_high = Iq_meas;
+    if (motor.state.is_v7) {
+      stateX->hfi_Id_meas_high = stateX->Id_meas;
+      stateX->hfi_Iq_meas_high = stateX->Iq_meas;
     }
     else {
-      hfi_V_act = -hfi_V_act;
-      hfi_Id_meas_low = Id_meas;
-      hfi_Iq_meas_low = Iq_meas;
+      stateX->hfi_V_act = -stateX->hfi_V_act;
+      stateX->hfi_Id_meas_low = stateX->Id_meas;
+      stateX->hfi_Iq_meas_low = stateX->Iq_meas;
     }
-    delta_id = hfi_Id_meas_high - hfi_Id_meas_low;
-    delta_iq = hfi_Iq_meas_high - hfi_Iq_meas_low;
-    //hfi_curangleest = 0.25f * atan2( -delta_iq  , delta_id - 0.5 * hfi_V * T * ( 1 / Ld + 1 / Lq ) ); //Complete calculation (not needed because error is always small due to feedback). 0.25 comes from 0.5 because delta signals are used and 0.5 due to 2theta (not just theta) being in the sin and cos wave.
-    if(hfi_method ==1 || hfi_method ==3 ){
-      hfi_curangleest =  0.5f * delta_iq / (hfi_V * T * ( 1 / Lq - 1 / Ld ) ); //0.5 because delta_iq is twice the iq value
+    stateX->delta_id = stateX->hfi_Id_meas_high - stateX->hfi_Id_meas_low;
+    stateX->delta_iq = stateX->hfi_Iq_meas_high - stateX->hfi_Iq_meas_low;
+
+    if ( stateX->diq_compensation_on) {
+      //stateX->delta_iq -= stateX->diq_compensation[ int(stateX->thetaPark * 180 / 2 / M_PI) ]; //Note: not adjusted yet for changing hfi_V
+      stateX->compensation = stateX->diq_compensation[ int(stateX->thetaPark * 360 / 2 / M_PI) ];
     }
-    else if(hfi_method ==2 || hfi_method == 4){
-      if (is_v7) {
-        hfi_curangleest =  (Iq_meas - Iq_SP) / (hfi_V * T * ( 1 / Lq - 1 / Ld ) );
+    else {
+      stateX->compensation = 0;
+    }
+
+    //stateX->hfi_curangleest = 0.25f * atan2( -stateX->delta_iq  , stateX->delta_id - 0.5 * stateX->hfi_V * motor.conf.T * ( 1 / Ld + 1 / Lq ) ); //Complete calculation (not needed because error is always small due to feedback). 0.25 comes from 0.5 because delta signals are used and 0.5 due to 2theta (not just theta) being in the sin and cos wave.
+    if (stateX->hfi_method == 1 || stateX->hfi_method == 3 ) {
+      stateX->hfi_curangleest =  0.5f * stateX->delta_iq / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq - 1 / confX->Ld ) ); //0.5 because delta_iq is twice the iq value
+    }
+    else if (stateX->hfi_method == 2 || stateX->hfi_method == 4) {
+      if (motor.state.is_v7) {
+        stateX->hfi_curangleest =  (stateX->Iq_meas - stateX->Iq_SP) / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq - 1 / confX->Ld ) );
       }
       else {
-        hfi_curangleest =  (Iq_meas - Iq_SP) / (-hfi_V * T * ( 1 / Lq - 1 / Ld ) );
+        stateX->hfi_curangleest =  (stateX->Iq_meas - stateX->Iq_SP) / (-stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq - 1 / confX->Ld ) );
       }
     }
-    hfi_error = -hfi_curangleest; //Negative feedback
-    if (hfi_use_lowpass){
-      hfi_error = hfi_lowpass->process( hfi_error );
+    stateX->hfi_error = -stateX->hfi_curangleest; //Negative feedback
+    if (stateX->hfi_use_lowpass) {
+      stateX->hfi_error = hfi_lowpass->process( stateX->hfi_error );
     }
-    hfi_dir_int += T * hfi_error * hfi_gain_int2; //This the the double integrator
+    stateX->hfi_dir_int += motor.conf.T * stateX->hfi_error * stateX->hfi_gain_int2; //This the the double integrator
 
-    float hfi_half_int = hfi_gain * 0.5f * T * hfi_error;
-    hfi_contout += hfi_half_int + hfi_half_int_prev + hfi_dir_int; //This is the integrator and the double integrator
-    if(hfi_method ==3 || hfi_method == 4){
-      hfi_ffw = we * T;
-      hfi_contout += hfi_ffw; //This is the feedforward
+    stateX->hfi_contout += stateX->hfi_gain * motor.conf.T * stateX->hfi_error + stateX->hfi_dir_int; //This is the integrator and the double integrator
+    if (stateX->hfi_method == 3 || stateX->hfi_method == 4) {
+      stateX->hfi_ffw = stateX->we * motor.conf.T;
+      stateX->hfi_contout += stateX->hfi_ffw; //This is the feedforward
     }
-    while ( hfi_contout >= 2 * M_PI) {
-      hfi_contout -= 2 * M_PI;
+    while ( stateX->hfi_contout >= 2 * M_PI) {
+      stateX->hfi_contout -= 2 * M_PI;
     }
-    while ( hfi_contout < 0) {
-      hfi_contout += 2 * M_PI;
+    while ( stateX->hfi_contout < 0) {
+      stateX->hfi_contout += 2 * M_PI;
     }
-    while ( hfi_contout >= 2 * M_PI) {
-      hfi_contout -= 2 * M_PI;
+    while ( stateX->hfi_contout >= 2 * M_PI) {
+      stateX->hfi_contout -= 2 * M_PI;
     }
-    while ( hfi_contout < 0) {
-      hfi_contout += 2 * M_PI;
+    while ( stateX->hfi_contout < 0) {
+      stateX->hfi_contout += 2 * M_PI;
     }
-    
-    hfi_dir = hfi_contout + dist * hfi_distgain;
-    
-    while ( hfi_dir >= 2 * M_PI) {
-      hfi_dir -= 2 * M_PI;
+
+    stateX->hfi_dir = stateX->hfi_contout + stateX->dist * stateX->hfi_distgain;
+
+    while ( stateX->hfi_dir >= 2 * M_PI) {
+      stateX->hfi_dir -= 2 * M_PI;
     }
-    while ( hfi_dir < 0) {
-      hfi_dir += 2 * M_PI;
+    while ( stateX->hfi_dir < 0) {
+      stateX->hfi_dir += 2 * M_PI;
     }
-    while ( hfi_dir_int >= 2 * M_PI) {
-      hfi_dir_int -= 2 * M_PI;
+    while ( stateX->hfi_dir_int >= 2 * M_PI) {
+      stateX->hfi_dir_int -= 2 * M_PI;
     }
-    while ( hfi_dir_int < 0) {
-      hfi_dir_int += 2 * M_PI;
+    while ( stateX->hfi_dir_int < 0) {
+      stateX->hfi_dir_int += 2 * M_PI;
     }
-    hfi_half_int_prev = hfi_half_int;
   }
   else {
-    hfi_dir = thetaPark_obs;
-    hfi_contout = thetaPark_obs;
-    hfi_dir_int = 0;
-    hfi_half_int_prev = 0;
-    hfi_firstcycle = true;
-    hfi_Id_meas_low = 0;
-    hfi_Iq_meas_low = 0;
-    hfi_Id_meas_high = 0;
-    hfi_Iq_meas_high = 0;
-    hfi_V_act = 0;
+    stateX->hfi_dir = stateX->thetaPark_obs;
+    stateX->hfi_contout = stateX->thetaPark_obs;
+    stateX->hfi_dir_int = 0;
+    stateX->hfi_firstcycle = true;
+    stateX->hfi_Id_meas_low = 0;
+    stateX->hfi_Iq_meas_low = 0;
+    stateX->hfi_Id_meas_high = 0;
+    stateX->hfi_Iq_meas_high = 0;
+    stateX->hfi_V_act = 0;
   }
-  hfi_prev = hfi_V;
+  stateX->hfi_prev = stateX->hfi_V;
 
-  if (ridethewave != 1 ) {
-    if (OutputOn == true) {
-      Id_e = Id_SP - Id_meas;
-      Iq_e = Iq_SP - Iq_meas;
+  if (confX->ridethewave != 1 ) {
+    if (stateX->OutputOn == true) {
+      stateX->Id_e = stateX->Id_SP - stateX->Id_meas;
+      stateX->Iq_e = stateX->Iq_SP - stateX->Iq_meas;
     }
     else {
-      Id_e = 0;
-      Iq_e = 0;
+      stateX->Id_e = 0;
+      stateX->Iq_e = 0;
     }
 
-    Vq = Kp_iq * Iq_e;
-    float vq_half_int = Ki_iq * T * 0.5f * Vq;
-    vq_int_state += vq_half_int;
-    Vq += vq_int_state;
-    vq_int_state += vq_half_int;
+    stateX->Kp_iq_out = confX->Kp_iq * stateX->Iq_e;
+    stateX->vq_int_state += confX->Ki_iq * motor.conf.T * stateX->Kp_iq_out;
+    stateX->Ki_iq_out = stateX->Kp_iq_out + stateX->vq_int_state;
+    LOWPASS( stateX->Vq_lp_out , stateX->Ki_iq_out, confX->lowpass_Vq_c);
+
+    stateX->Vq_biquadout = BiquadsX[4]->process( stateX->Vq_lp_out );
 
     //Additional Vq
-    Vq += VSP;
-    Vq += dist * Vq_distgain;
+    stateX->Vq = stateX->Vq_biquadout;
+    stateX->Vq += stateX->VSP;
+    stateX->Vq += stateX->dist * stateX->Vq_distgain;
+    stateX->Vq += stateX->hfi_V_act * stateX->compensation;
 
-    Vd = Kp_id * Id_e;
-    float vd_half_int = Ki_id * T * 0.5f * Vd;
-    vd_int_state += vd_half_int;
-    Vd += vd_int_state;
-    vd_int_state += vd_half_int;
+    //    stateX->Vd = confX->Kp_id * stateX->Id_e;
+    //    stateX->vd_int_state += confX->Ki_id * motor.conf.T * stateX->Vd;;
+    //    stateX->Vd += stateX->vd_int_state;
+    //
+    //    LOWPASS( stateX->Vd , stateX->Vd, confX->lowpass_Vd_c);
+
+    stateX->Kp_id_out = confX->Kp_id * stateX->Id_e;
+    stateX->vd_int_state += confX->Ki_id * motor.conf.T * stateX->Kp_id_out;
+    stateX->Ki_id_out = stateX->Kp_id_out + stateX->vd_int_state;
+    LOWPASS( stateX->Vd_lp_out , stateX->Ki_id_out, confX->lowpass_Vd_c);
+
+    stateX->Vd_biquadout = BiquadsX[5]->process( stateX->Vd_lp_out );
 
     //Additional Vd
-    Vd += dist * Vd_distgain;
-    Vd += hfi_V_act;
+    stateX->Vd = stateX->Vd_biquadout;
+    stateX->Vd += stateX->dist * stateX->Vd_distgain;
+    stateX->Vd += stateX->hfi_V_act;
 
     // PMSM decoupling control and BEMF FF
-    VqFF = we * ( Ld * Id_meas + Lambda_m);
+    stateX->VqFF = stateX->we * ( confX->Ld * stateX->Id_meas + confX->Lambda_m);
 
     // q axis induction FFW based on setpoint FFW
-    VqFF += SPprofile->jref * Jload * Lq * Kt_Nm_Apeak * OutputOn;
+    stateX->VqFF += SPprofile1->jref * stateX->Jload * confX->Lq * confX->Kt_Nm_Apeak * stateX->OutputOn;
 
-    Vq += VqFF;
-    VdFF = -we * Lq * Iq_meas;
-    Vd += VdFF;
+    stateX->Vq += stateX->VqFF;
+
+    stateX->VdFF = -stateX->we * confX->Lq * stateX->Iq_meas;
+    stateX->Vd += stateX->VdFF;
   }
 
-  Vq += muziek_gain_V * muziek[ (curloop / (50 / (int)Ts)) % (sizeof(muziek) / 4) ];
+  stateX->Vq += stateX->muziek_gain_V * muziek[ (motor.state.curloop / (50 / (int)motor.conf.Ts)) % (sizeof(muziek) / 4) ];
 
   // Voltage clipping
-  maxVolt = maxDutyCycle * sensBus_lp * one_by_sqrt3;
-  Vtot = NORM2_f( Vd , Vq );
-  if ( Vtot > maxVolt) {
-    if ( abs( Vd ) > maxVolt) {
-      if (Vd > 0) {
-        Vd = maxVolt;
+  stateX->maxVolt = confX->maxDutyCycle * motor.state.sensBus_lp * ONE_BY_SQRT3;
+  stateX->Vtot = NORM2_f( stateX->Vd , stateX->Vq );
+  if ( stateX->Vtot > stateX->maxVolt) {
+    if ( confX->clipMethod == 0 ) {
+      if ( abs( stateX->Vd ) > stateX->maxVolt) {
+        if (stateX->Vd > 0) {
+          stateX->Vd = stateX->maxVolt;
+        }
+        else {
+          stateX->Vd = -stateX->maxVolt;
+        }
+        if (abs(stateX->vd_int_state) > abs(stateX->Vd)) {
+          stateX->vd_int_state = stateX->Vd;
+        }
+      }
+      if (sq(stateX->Vd) >= sq(stateX->maxVolt)) { //Vd cannot be larger than maxvolt, so no issue with sqrt of negative values. Still get nan Vq somehow. Fix:
+        stateX->Vq = 0;
       }
       else {
-        Vd = -maxVolt;
+        if ( stateX->Vq > 0 ) {
+          stateX->Vq = sqrt(sq(stateX->maxVolt) - sq(stateX->Vd)) ;
+        }
+        else {
+          stateX->Vq = -sqrt(sq(stateX->maxVolt) - sq(stateX->Vd)) ;
+        }
       }
-      if (abs(vd_int_state) > abs(Vd)) {
-        vd_int_state = Vd;
-      }
-    }
-    if (sq(Vd) >= sq(maxVolt)) { //Vd cannot be larger than maxvolt, so no issue with sqrt of negative values. Still get nan Vq somehow. Fix:
-      Vq = 0;
-    }
-    else {
-      if ( Vq > 0 ) {
-        Vq = sqrt(sq(maxVolt) - sq(Vd)) ;
-      }
-      else {
-        Vq = -sqrt(sq(maxVolt) - sq(Vd)) ;
+      if (abs(stateX->vq_int_state) > abs(stateX->Vq)) {
+        stateX->vq_int_state = stateX->Vq;
       }
     }
-    if (abs(vq_int_state) > abs(Vq)) {
-      vq_int_state = Vq;
+    else if ( confX->clipMethod == 1 ) {
+      stateX->Vd *= (stateX->maxVolt / stateX->Vtot);
+      stateX->Vq *= (stateX->maxVolt / stateX->Vtot);
+
+      if (abs(stateX->vd_int_state) > abs(stateX->Vd)) {
+        stateX->vd_int_state = stateX->Vd;
+      }
+      if (abs(stateX->vq_int_state) > abs(stateX->Vq)) {
+        stateX->vq_int_state = stateX->Vq;
+      }
     }
   }
 
   // Inverse park transform
-  Valpha = co * Vd - si * Vq;
-  Vbeta  = co * Vq + si * Vd;
+  stateX->Valpha = stateX->co * stateX->Vd - stateX->si * stateX->Vq;
+  stateX->Vbeta  = stateX->co * stateX->Vq + stateX->si * stateX->Vd;
 
-  Valpha += Valpha_offset + Valpha_offset_hfi;
-  Vbeta += Vbeta_offset + Vbeta_offset_hfi;
+  stateX->Valpha += stateX->Valpha_offset;
+  stateX->Vbeta += stateX->Vbeta_offset;
 
-  if (Valpha > maxVolt) {
-    Valpha = maxVolt;
+  if (stateX->Valpha > stateX->maxVolt) {
+    stateX->Valpha = stateX->maxVolt;
   }
-  if (Vbeta > maxVolt) {
-    Vbeta = maxVolt;
+  if (stateX->Vbeta > stateX->maxVolt) {
+    stateX->Vbeta = stateX->maxVolt;
   }
-  if (Valpha < -maxVolt) {
-    Valpha = -maxVolt;
+  if (stateX->Valpha < -stateX->maxVolt) {
+    stateX->Valpha = -stateX->maxVolt;
   }
-  if (Vbeta < -maxVolt) {
-    Vbeta = -maxVolt;
+  if (stateX->Vbeta < -stateX->maxVolt) {
+    stateX->Vbeta = -stateX->maxVolt;
   }
 
   // Inverse Power-variant Clarke transform
-  Va = Valpha;
-  Vb = -0.5 * Valpha + sqrt3_by_2 * Vbeta;
-  Vc = -0.5 * Valpha - sqrt3_by_2 * Vbeta;
+  stateX->Va = stateX->Valpha;
+  stateX->Vb = -0.5 * stateX->Valpha + SQRT3_by_2 * stateX->Vbeta;
+  stateX->Vc = -0.5 * stateX->Valpha - SQRT3_by_2 * stateX->Vbeta;
 
   //See https://microchipdeveloper.com/mct5001:start Zero Sequence Modulation Tutorial
-  float Vcm = -(max(max(Va, Vb), Vc) + min(min(Va, Vb), Vc)) / 2;
-  Va += Vcm + sensBus_lp / 2;
-  Vb += Vcm + sensBus_lp / 2;
-  Vc += Vcm + sensBus_lp / 2;
+  float Vcm = -(max(max(stateX->Va, stateX->Vb), stateX->Vc) + min(min(stateX->Va, stateX->Vb), stateX->Vc)) / 2;
+  stateX->Va += Vcm + motor.state.sensBus_lp / 2;
+  stateX->Vb += Vcm + motor.state.sensBus_lp / 2;
+  stateX->Vc += Vcm + motor.state.sensBus_lp / 2;
 
   //Calculate modulation times
-  tA = Va / sensBus_lp;
-  tB = Vb / sensBus_lp;
-  tC = Vc / sensBus_lp;
-
-  //Motor 2 (needs to be updated, can probably be done much nicer):
-  if (ridethewave2 != 1 ) {
-    if (OutputOn == true) {
-      Id_e2 = Id_SP2 - Id_meas2;
-      Iq_e2 = Iq_SP2 - Iq_meas2;
-    }
-    else {
-      Id_e2 = 0;
-      Iq_e2 = 0;
-    }
-    Vq2 = Icontgain2 * Iq_e2;
-    Vq2 += integrator_Iq2->processclip( Vq2 , -V_Bus - Vq2 , V_Bus - Vq2 );
-
-    //Additional Vq
-    Vq2 += VSP;
-    Vq2 += dist * Vq_distgain;
-
-    Vd2 = Icontgain2 * Id_e2;
-    Vd2 += integrator_Id2->processclip( Vd2 , -V_Bus - Vd2 , V_Bus - Vd2 );
-
-    //Additional Vd
-    Vd2 += dist * Vd_distgain;
-
-    we2 = vel2 * 8;  //Electrical speed [rad/s], based on setpoint
-
-    // PMSM decoupling control and BEMF FF
-    VqFF2 = we2 * ( Ld2 * Id_meas2 + Lambda_m2);
-
-    // q axis induction FFW based on setpoint FFW
-    VqFF2 += SPprofile->jref * Jload2 * Lq2 * Kt_Nm_Apeak2 * OutputOn;
-
-    Vq2 += VqFF2;
-    VdFF2 = -we2 * Lq2 * Iq_meas2;
-    Vd2 += VdFF2;
-  }
-
-  Vq2 += muziek_gain_V * muziek[ (curloop / (50 / (int)Ts)) % (sizeof(muziek) / 4) ];
-
-  // Inverse park transform
-  Valpha2 = co2 * Vd2 - si2 * Vq2;
-  Vbeta2  = co2 * Vq2 + si2 * Vd2;
-
-  Valpha2 += Valpha2_offset;
-
-  // Inverse Power-variant Clarke transform
-  Va2 = Valpha2;
-  Vb2 = -0.5 * Valpha2 + sqrt3_by_2 * Vbeta2;
-  Vc2 = -0.5 * Valpha2 - sqrt3_by_2 * Vbeta2;
-
-  //See https://microchipdeveloper.com/mct5001:start Zero Sequence Modulation Tutorial
-  // These lines make SVM happen:
-  float Vcm2 = -(max(max(Va2, Vb2), Vc2) + min(min(Va2, Vb2), Vc2)) / 2;
-  Va2 += Vcm2 + sensBus_lp / 2;
-  Vb2 += Vcm2 + sensBus_lp / 2;
-  Vc2 += Vcm2 + sensBus_lp / 2;
-
-  //Calculate modulation times
-  tA2 = Va2 / sensBus_lp;
-  tB2 = Vb2 / sensBus_lp;
-  tC2 = Vc2 / sensBus_lp;
-
+  stateX->tA = stateX->Va / motor.state.sensBus_lp;
+  stateX->tB = stateX->Vb / motor.state.sensBus_lp;
+  stateX->tC = stateX->Vc / motor.state.sensBus_lp;
+  // What is better, use lowpassed or raw bus voltage?
 }
 
+
+void current_and_duty_limts( mot_conf_t* confX , mot_state_t* stateX ) {
+  truncate_number( &stateX->tA , 0.0 , 1.0);
+  truncate_number( &stateX->tB , 0.0 , 1.0);
+  truncate_number( &stateX->tC , 0.0 , 1.0);
+
+  if ( (abs(stateX->Id_SP) > confX->I_max) || (abs(stateX->Iq_SP) > confX->I_max) ) {
+    error(3 , stateX);
+  }
+  if ( (abs(stateX->Id_meas) > confX->I_max) || (abs(stateX->Iq_meas) > confX->I_max)  ) {
+    error(4 , stateX);
+  }
+}
+
+
 void changePWM() {
-  if (tA > 1) {
-    tA = 1;
-  }
-  if (tB > 1) {
-    tB = 1;
-  }
-  if (tC > 1) {
-    tC = 1;
-  }
-
-  if (tA < 0) {
-    tA = 0;
-  }
-  if (tB < 0) {
-    tB = 0;
-  }
-  if (tC < 0) {
-    tC = 0;
-  }
-
-  if ( (abs(Id_SP) > I_max) || (abs(Iq_SP) > I_max) ) {
-    OutputOn = false;
-    if (firsterror == 0) {
-      firsterror = 3;
-    }
-  }
-  if ( (abs(Id_meas) > I_max) || (abs(Iq_meas) > I_max)  ) {
-    OutputOn = false;
-    if (firsterror == 0) {
-      firsterror = 4;
-    }
-  }
-
-  //  if ( (abs(Id_SP2) > I_max) || (abs(Iq_SP2) > I_max) ) {
-  //    OutputOn = false;
-  //    if (firsterror == 0) {
-  //      firsterror = 23;
-  //    }
-  //  }
-  //  if ( (abs(Id_meas2) > I_max) || (abs(Iq_meas2) > I_max)  ) {
-  //    OutputOn = false;
-  //    if (firsterror == 0) {
-  //      firsterror = 24;
-  //    }
-  //  }
-
-  //  //Motor 1, flexpwm2:
-  //  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
-  //  if (OutputOn == false) {
-  //    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 / 2;
-  //    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 / 2;
-  //    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 / 2;
-  //  }
-  //  else {
-  //    // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
-  //    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 * tA;
-  //    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 * tB;
-  //    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 * tC;
-  //  }
-  //  FLEXPWM2_SM0VAL2 = -FLEXPWM2_SM0VAL3;
-  //  FLEXPWM2_SM1VAL2 = -FLEXPWM2_SM1VAL3;
-  //  FLEXPWM2_SM2VAL2 = -FLEXPWM2_SM2VAL3;
-  //  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
-
-  //Motor 1, flexpwm4:
+  //  //Motor 1, flexpwm4:
   FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
-  if (OutputOn == false) {
-    digitalWrite( engate , 0);
+  if (motor.state1.OutputOn == false) {
+    //digitalWrite( ENGATE , 0);
     FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 / 2;
     FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 / 2;
     FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 / 2;
   }
   else {
     // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
-    digitalWrite( engate , 1);
-    FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 * tB;
-    FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 * tC;
-    FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 * tA;
+    //digitalWrite( ENGATE , 1);
+    FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 * motor.state1.tB;
+    FLEXPWM4_SM1VAL3 = FLEXPWM4_SM1VAL1 * motor.state1.tC;
+    FLEXPWM4_SM2VAL3 = FLEXPWM4_SM2VAL1 * motor.state1.tA;
   }
   FLEXPWM4_SM0VAL2 = -FLEXPWM4_SM0VAL3;
   FLEXPWM4_SM1VAL2 = -FLEXPWM4_SM1VAL3;
   FLEXPWM4_SM2VAL2 = -FLEXPWM4_SM2VAL3;
   FLEXPWM4_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
+
+
+  //Motor 2, flexpwm2:
+  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );  //Enable changing of settings
+  if (motor.state2.OutputOn == false) {
+    //digitalWrite( ENGATE2 , 0);
+    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 / 2;
+    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 / 2;
+    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 / 2;
+  }
+  else {
+    // Set duty cycles. FTM3_MOD = 100% (1800 for current settings, 20 kHz).
+    //digitalWrite( ENGATE2 , 1);
+    FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 * motor.state2.tC;
+    FLEXPWM2_SM1VAL3 = FLEXPWM2_SM1VAL1 * motor.state2.tB;
+    FLEXPWM2_SM2VAL3 = FLEXPWM2_SM2VAL1 * motor.state2.tA;
+  }
+  FLEXPWM2_SM0VAL2 = -FLEXPWM2_SM0VAL3;
+  FLEXPWM2_SM1VAL2 = -FLEXPWM2_SM1VAL3;
+  FLEXPWM2_SM2VAL2 = -FLEXPWM2_SM2VAL3;
+  FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 ); //Activate settings
 }
 
-void communicationProcess() {
-  processSerialIn();
 
-  curloop++;
-  if (Nsend > 0) {
-    downsample--;
-    if ( downsample < 1) {
-      downsample = Ndownsample;
-      bf.uint  = curloop;        Serial.write( bf.bin , 4);
-      bf.uint  = curtime;        Serial.write( bf.bin , 4);
-      trace( );
-      Nsend--;
-    }
+void communicationProcess() {
+  if (Serial.available() > 0) {
+    processSerialIn();
   }
-  if ((sendall > 0 ) & (Nsend == 0)) {
-    if (sendall == 1) {
-      for (int i = 0; i < n_trace; ++i)
-      {
-        tracearray[i] = i;
+  if (trace.send_all) {
+    static uint32_t i_total = 0;
+    for ( uint32_t i = 0; i < 14; i++) {
+      if (( trace.all_pointers[i_total] != NULL && i_total < sizeof(trace.all_pointers))) {
+        Serial.write( trace.all_pointers[i_total] , trace.all_lengths[i_total]);
+        i_total++;
+      }
+      else {
+        i_total = 0;
+        trace.send_all = false;
+        break;
       }
     }
-    if (sendall > 1) {
-      for (int i = 0; i < n_trace; ++i)
-      {
-        tracearray[i] += n_trace;
+    delay(1);
+  }
+
+  if ( trace.n_to_send > 0) {
+    if ( motor.state.downsample < 1) {
+      motor.state.downsample = motor.conf.Ndownsample;
+      for ( uint32_t i = 0; i < sizeof(trace.pointers) ; i++) {
+        if ( trace.pointers[i] == NULL) {
+          break;
+        }
+        Serial.write( trace.pointers[i] , trace.lengths[i]);
+      }
+      if ( trace.n_to_send < 1e6) {
+        trace.n_to_send--;
       }
     }
-    trace( );
-    sendall++;
-    if ((sendall - 1) * n_trace >= 268 ) {
-      sendall = 0;
-    }
+    motor.state.downsample--;
+  }
+
+}
+
+void processCommands( mot_conf_t* confX ,  mot_state_t* stateX ) {
+  switch (confX->Command) {
+    case UPDATE_CONTROLLER:
+      {
+        if (confX->Kp == 0) {
+          stateX->rmechoffset -= stateX->emech;
+          stateX->Kp_out_prev = 0;
+          stateX->Ki_sum = 0;
+          stateX->lp_out = 0;
+        }
+        confX->Kp = confX->Kp_prep;
+        confX->Kd = confX->Kd_prep;
+        confX->Ki = confX->Ki_prep;
+        confX->lowpass_c = confX->lowpass_c_prep;
+        confX->Command = NO_COMMAND;
+        break;
+      }
+    case RESET_ERROR:
+      {
+        if (motor.state.firsterror > 0) {
+          motor.state1.offsetVel_lp = 0;
+          motor.state1.offsetVel = 0;
+          motor.state1.offsetVelTot = 0;
+          motor.state2.offsetVel_lp = 0;
+          motor.state2.offsetVel = 0;
+          motor.state2.offsetVelTot = 0;
+          motor.state.firsterror = 0;
+          motor.state1.firsterror = 0;
+          motor.state2.firsterror = 0;
+          motor.conf1.Kp = 0;
+          motor.conf2.Kp = 0;
+          digitalWrite( ENGATE , 1);
+          SPI_init( SSPIN );  // Only for DRV8301.
+          digitalWrite( ENGATE2 , 1);
+          SPI_init( SSPIN2 );  // Only for DRV8301.
+          motor.state1.OutputOn = true;
+          motor.state2.OutputOn = true;
+        }
+        confX->Command = NO_COMMAND;
+        break;
+      }
+    case MOVE_BOTH_POS:
+      {
+        motor.state1.SPdir = 1;
+        motor.state2.SPdir = 1;
+        motor.state1.spNgo = 1;
+        motor.state2.spNgo = 1;
+        confX->Command = NO_COMMAND;
+        break;
+      }
+    case MOVE_BOTH_NEG:
+      {
+        motor.state1.SPdir = 0;
+        motor.state2.SPdir = 0;
+        motor.state1.spNgo = 1;
+        motor.state2.spNgo = 1;
+        confX->Command = NO_COMMAND;
+        break;
+      }
+      
   }
 }
 
@@ -1164,102 +1185,149 @@ void xbar_connect(unsigned int input, unsigned int output)
 
 
 void processSerialIn() {
-  if (Serial.available() > 4) {
-    char settingByte = Serial.read();
-    for ( int i = 0; i < 4; i++) {
-      ser_in.bin[i] = Serial.read();
-    }
-    if (settingByte == 's') {
-      ss_gain = ser_in.fp;
-      ss_f = ss_fstart;
-      ss_phase = 0;
-      ss_tstart = (timePrev + Ts) / 1e6; //timePrev gebruik ik niet meer?!!
-    }
-    if (settingByte == 'o') {
-      digitalWrite( engate , 1);
-      SPI_init();
-      OutputOn = true;
-      offsetVelTot = 0;
-      //      encoderPos1 = 0;
-      //      encoderPos2 = 0;
-      // Reset positions to zero, as the floating point number is most accurate here
-      SPprofile->REFqmem = 0;
-      if (haptic == 1) {
-        rmechoffset = ymech1 + ymech2;
+  char serialoption = Serial.read();
+  uint32_t isignal;
+  switch (serialoption) {
+    case 'a':
+      {
+        trace.send_all = true;
+        break;
       }
-      else {
-        rmechoffset = ymech1;
+    case 'b':
+      {
+        Serial.readBytes( (char*)&trace.n_to_send , 4);
+        break;
       }
-      rmechoffset2 = ymech2;
 
-      integrator->setState(0);
-      vq_int_state = 0;
-      vd_int_state = 0;
-
-      integrator2->setState(0);
-      integrator_Id2->setState(0);
-      integrator_Iq2->setState(0);
-
-      firsterror = 0;
-    }
-
-    if (settingByte == '1') {
-      SPprofile->t1 = ser_in.fp;
-    }
-    if (settingByte == '2') {
-      SPprofile->t2 = ser_in.fp;
-    }
-    if (settingByte == '3') {
-      SPprofile->t3 = ser_in.fp;
-    }
-    if (settingByte == '4') {
-      SPprofile->p = ser_in.fp;
-    }
-    if (settingByte == '5') {
-      SPprofile->v_max = ser_in.fp;
-    }
-    if (settingByte == '6') {
-      SPprofile->a_max = ser_in.fp;
-    }
-    if (settingByte == '7') {
-      SPprofile->j_max = ser_in.fp;
-      SPprofile->init();
-    }
-    if (settingByte == '8') {
-      int adc_shift = ser_in.sint;
-      FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_CLDOK( 7 );//  Clear Load Okay LDOK(SM) -> no reload of PWM settings
-      FLEXPWM2_SM0VAL4 = 0 + adc_shift; // adc trigger
-      FLEXPWM2_SM0VAL5 = FLEXPWM2_SM0VAL1 + adc_shift; // adc trigger
-      FLEXPWM2_SM2VAL4 = FLEXPWM2_SM0VAL4; // adc trigger output
-      FLEXPWM2_SM2VAL5 = FLEXPWM2_SM0VAL5; // adc trigger output
-      FLEXPWM2_MCTRL |= FLEXPWM_MCTRL_LDOK( 7 );// Load Okay LDOK(SM) -> reload setting again
-    }
-
-    if (settingByte == 't') {
-      tracearray[Serial.read()] = ser_in.uint;
-    }
-    if (settingByte == 'T') {
-      printSignals( ser_in.uint );
-    }
-    if (settingByte == 'S') {
-      for ( int i = 0; i < 4; i++) {
-        bf.bin[i] = Serial.read();
+    case 'g': //Get specific signal(s) from array
+      {
+        Serial.readBytes( (char*)&isignal , 4);
+        uint32_t signallocation;
+        Serial.readBytes( (char*)&signallocation , 4);
+        uint32_t signallength;
+        Serial.readBytes( (char*)&signallength , 4);
+        uint8_t memberlength = signaltomemberlength( isignal );
+        Serial.write( trace.all_pointers[isignal] + (signallocation * memberlength) , signallength );
+        break;
       }
-      setpar( ser_in.uint , bf );
-    }
+    case 'G': //Get signal
+      {
+        Serial.readBytes( (char*)&isignal , 4);
+        Serial.write( trace.all_pointers[isignal] , trace.all_lengths[isignal]);
+        break;
+      }
+    case 's': //Set specific paramter(s) in array
+      {
+        Serial.readBytes( (char*)&isignal , 4);
+        uint32_t signallocation;
+        Serial.readBytes( (char*)&signallocation , 4);
+        uint32_t signallength;
+        Serial.readBytes( (char*)&signallength , 4);
+        uint8_t memberlength = signaltomemberlength( isignal );
+        Serial.readBytes( (char*)trace.all_pointers[isignal] + (signallocation * memberlength) , signallength );
+        break;
+      }
+    case 'S': //Set parameter
+      {
+        Serial.readBytes( (char*)&isignal , 4);
+        Serial.readBytes( (char*)trace.all_pointers[isignal] , trace.all_lengths[isignal]);
+        break;
+      }
+    case 't':
+      {
+        Serial.readBytes( (char*)&isignal , 4);
+        uint8_t traceposition = Serial.read();
+        if (isignal < sizeof( trace.all_types )) {
+          trace.pointers[traceposition] = trace.all_pointers[isignal] ;
+          trace.lengths[traceposition] = trace.all_lengths[isignal];
+        }
+        else {
+          trace.pointers[traceposition] = NULL;
+          trace.lengths[traceposition] = 0;
+        }
+        break;
+      }
+    case 'T':
+      {
+        for (uint32_t i = 0; i < sizeof( trace.all_types ) ; i ++) {
+          if ( trace.names[i] == NULL) {
+            break;
+          }
+          Serial.println( trace.names[i] );
+          Serial.println( trace.all_types[i] );
+          Serial.println( trace.all_lengths[i] / signaltomemberlength(i) );
+        }
+        break;
+      }
 
-    if (settingByte == 'C') {
-      ContSelect = ser_in.uint;
+    case  '1':
+      {
+        Serial.readBytes( (char*)&SPprofile1->t1 , 4);
+        Serial.readBytes( (char*)&SPprofile1->t2 , 4);
+        Serial.readBytes( (char*)&SPprofile1->t3 , 4);
+        Serial.readBytes( (char*)&SPprofile1->p , 8);
+        Serial.readBytes( (char*)&SPprofile1->v_max , 4);
+        Serial.readBytes( (char*)&SPprofile1->a_max , 4);
+        Serial.readBytes( (char*)&SPprofile1->j_max , 4);
+        SPprofile1->init();
+        break;
+      }
+    case  '2':
+      {
+        Serial.readBytes( (char*)&SPprofile2->t1 , 4);
+        Serial.readBytes( (char*)&SPprofile2->t2 , 4);
+        Serial.readBytes( (char*)&SPprofile2->t3 , 4);
+        Serial.readBytes( (char*)&SPprofile2->p , 8);
+        Serial.readBytes( (char*)&SPprofile2->v_max , 4);
+        Serial.readBytes( (char*)&SPprofile2->a_max , 4);
+        Serial.readBytes( (char*)&SPprofile2->j_max , 4);
+        SPprofile2->init();
+        break;
+      }
+
+    case  'N': //Notch
+      {
+        uint32_t axis;
+        Serial.readBytes( (char*)&axis , 4);
+        Serial.readBytes( (char*)&isignal , 4);
+        float f0;
+        Serial.readBytes( (char*)&f0 , 4);
+        float debthdb;
+        Serial.readBytes( (char*)&debthdb , 4);
+        float notch_width;
+        Serial.readBytes( (char*)&notch_width , 4);
+        if (axis == 1) {
+          Biquads1[isignal]->setNotch( f0, debthdb, notch_width, 2 * F_PWM);
+        }
+        else if (axis == 2) {
+          Biquads2[isignal]->setNotch( f0, debthdb, notch_width, 2 * F_PWM);
+        }
+        break;
+      }
       
-      integrator = new Integrator( fInt , 1 / T);
-      leadlag       = new LeadLag( fBW , alpha1 , alpha2 , 1 / T);
-      lowpass        = new Biquad( bq_type_lowpass , fLP , 0.7, 1 / T);
-      integrator2 = new Integrator( fInt2 , 1 / T);
-      leadlag2       = new LeadLag( fBW2 , alpha1_2 , alpha2_2 , 1 / T);
-      lowpass2        = new Biquad( bq_type_lowpass , fLP2 , 0.7 , 1 / T);
-    }
+    case  'L': //Lowpass
+      {
+        uint32_t axis;
+        Serial.readBytes( (char*)&axis , 4);
+        Serial.readBytes( (char*)&isignal , 4);
+        float f0;
+        Serial.readBytes( (char*)&f0 , 4);
+        float damp;
+        Serial.readBytes( (char*)&damp , 4);
+        if (axis == 1) {
+          Biquads1[isignal]->setBiquad( bq_type_lowpass , f0, damp, 2 * F_PWM);
+        }
+        else if (axis == 2) {
+          Biquads2[isignal]->setBiquad( bq_type_lowpass , f0, damp, 2 * F_PWM);
+        }
+        break;
+      }
+
+
+      
   }
 }
+
 
 void utils_step_towards(float * value, float goal, float step) {
   if (*value < goal) {
@@ -1278,587 +1346,37 @@ void utils_step_towards(float * value, float goal, float step) {
 }
 
 
-void trace( ) {
-  for( int i = 0; i < n_trace; i++){
-    int isignal = tracearray[i];
-    switch( isignal ){
-      case   0: bf.fp   = Ts; break;
-      case   1: bf.fp   = advancefactor; break;
-      case   2: bf.fp   = i_vector_radpers; break;
-      case   3: bf.fp   = i_vector_radpers_act; break;
-      case   4: bf.fp   = i_vector_acc; break;
-      case   5: bf.fp   = maxDutyCycle; break;
-      case   6: bf.fp   = BEMFa; break;
-      case   7: bf.fp   = BEMFb; break;
-      case   8: bf.fp   = Ialpha_last; break;
-      case   9: bf.fp   = Ibeta_last; break;
-      case  10: bf.fp   = commutationoffset; break;
-      case  11: bf.fp   = DQdisturbangle; break;
-      case  12: bf.fp   = Vq; break;
-      case  13: bf.fp   = Vd; break;
-      case  14: bf.fp   = Valpha; break;
-      case  15: bf.fp   = Vbeta; break;
-      case  16: bf.fp   = thetawave; break;
-      case  17: bf.fp   = Id_meas; break;
-      case  18: bf.fp   = Iq_meas; break;
-      case  19: bf.fp   = Id_meas_lp; break;
-      case  20: bf.fp   = Iq_meas_lp; break;
-      case  21: bf.fp   = VSP; break;
-      case  22: bf.fp   = commutationoffset2; break;
-      case  23: bf.fp   = DQdisturbangle2; break;
-      case  24: bf.fp   = Vq2; break;
-      case  25: bf.fp   = Vd2; break;
-      case  26: bf.fp   = Valpha2; break;
-      case  27: bf.fp   = Vbeta2; break;
-      case  28: bf.fp   = thetawave2; break;
-      case  29: bf.fp   = Id_meas2; break;
-      case  30: bf.fp   = Iq_meas2; break;
-      case  31: bf.fp   = Id_meas2_lp; break;
-      case  32: bf.fp   = Iq_meas2_lp; break;
-      case  33: bf.fp   = Va; break;
-      case  34: bf.fp   = Vb; break;
-      case  35: bf.fp   = Vc; break;
-      case  36: bf.fp   = Va2; break;
-      case  37: bf.fp   = Vb2; break;
-      case  38: bf.fp   = Vc2; break;
-      case  39: bf.fp   = adc2A1; break;
-      case  40: bf.fp   = adc2A2; break;
-      case  41: bf.fp   = one_by_sqrt3; break;
-      case  42: bf.fp   = two_by_sqrt3; break;
-      case  43: bf.fp   = sqrt_two_three; break;
-      case  44: bf.fp   = sqrt3_by_2; break;
-      case  45: bf.fp   = mechcontout; break;
-      case  46: bf.fp   = Iout; break;
-      case  47: bf.fp   = mechcontout2; break;
-      case  48: bf.fp   = Iout2; break;
-      case  49: bf.fp   = muziek_gain; break;
-      case  50: bf.fp   = muziek_gain_V; break;
-      case  51: bf.fp   = distval; break;
-      case  52: bf.fp   = distoff; break;
-      case  53: bf.fp   = ss_phase; break;
-      case  54: bf.fp   = ss_fstart; break;
-      case  55: bf.fp   = ss_fstep; break;
-      case  56: bf.fp   = ss_fend; break;
-      case  57: bf.fp   = ss_gain; break;
-      case  58: bf.fp   = ss_offset; break;
-      case  59: bf.fp   = ss_f; break;
-      case  60: bf.fp   = ss_tstart; break;
-      case  61: bf.fp   = ss_out; break;
-      case  62: bf.fp   = T; break;
-      case  63: bf.fp   = enc2rad; break;
-      case  64: bf.fp   = enc2rad2; break;
-      case  65: bf.fp   = I_max; break;
-      case  66: bf.fp   = V_Bus; break;
-      case  67: bf.fp   = rmech; break;
-      case  68: bf.fp   = rdelay; break;
-      case  69: bf.fp   = emech1; break;
-      case  70: bf.fp   = ymech1; break;
-      case  71: bf.fp   = rmech2; break;
-      case  72: bf.fp   = emech2; break;
-      case  73: bf.fp   = ymech2; break;
-      case  74: bf.fp   = rmechoffset; break;
-      case  75: bf.fp   = rmechoffset2; break;
-      case  76: bf.fp   = sensBus_lp; break;
-      case  77: bf.fp   = Kp; break;
-      case  78: bf.fp   = fBW; break;
-      case  79: bf.fp   = alpha1; break;
-      case  80: bf.fp   = alpha2; break;
-      case  81: bf.fp   = fInt; break;
-      case  82: bf.fp   = fLP; break;
-      case  83: bf.fp   = Kp2; break;
-      case  84: bf.fp   = fBW2; break;
-      case  85: bf.fp   = alpha1_2; break;
-      case  86: bf.fp   = alpha2_2; break;
-      case  87: bf.fp   = fInt2; break;
-      case  88: bf.fp   = fLP2; break;
-      case  89: bf.fp   = Vout; break;
-      case  90: bf.fp   = fIntCur; break;
-      case  91: bf.fp   = Kp_iq; break;
-      case  92: bf.fp   = Kp_id; break;
-      case  93: bf.fp   = Ki_iq; break;
-      case  94: bf.fp   = Ki_id; break;
-      case  95: bf.fp   = vq_int_state; break;
-      case  96: bf.fp   = vd_int_state; break;
-      case  97: bf.fp   = Vout2; break;
-      case  98: bf.fp   = fIntCur2; break;
-      case  99: bf.fp   = Icontgain2; break;
-      case 100: bf.fp   = sensCalVal1; break;
-      case 101: bf.fp   = sensCalVal2; break;
-      case 102: bf.fp   = sensCalVal3; break;
-      case 103: bf.fp   = sensCalVal4; break;
-      case 104: bf.fp   = sens1; break;
-      case 105: bf.fp   = sens2; break;
-      case 106: bf.fp   = sens3; break;
-      case 107: bf.fp   = sens4; break;
-      case 108: bf.fp   = sens1_lp; break;
-      case 109: bf.fp   = sens2_lp; break;
-      case 110: bf.fp   = sens3_lp; break;
-      case 111: bf.fp   = sens4_lp; break;
-      case 112: bf.fp   = sens1_calib; break;
-      case 113: bf.fp   = sens2_calib; break;
-      case 114: bf.fp   = sens3_calib; break;
-      case 115: bf.fp   = sens4_calib; break;
-      case 116: bf.fp   = sensBus; break;
-      case 117: bf.fp   = I_bus; break;
-      case 118: bf.fp   = P_tot; break;
-      case 119: bf.fp   = Busadc2Vbus; break;
-      case 120: bf.fp   = Jload; break;
-      case 121: bf.fp   = velFF; break;
-      case 122: bf.fp   = R; break;
-      case 123: bf.fp   = Jload2; break;
-      case 124: bf.fp   = velFF2; break;
-      case 125: bf.fp   = offsetVelTot; break;
-      case 126: bf.fp   = offsetVel; break;
-      case 127: bf.fp   = offsetVel_lp; break;
-      case 128: bf.fp   = acc; break;
-      case 129: bf.fp   = vel; break;
-      case 130: bf.fp   = dist; break;
-      case 131: bf.fp   = Ialpha; break;
-      case 132: bf.fp   = Ibeta; break;
-      case 133: bf.fp   = thetaPark; break;
-      case 134: bf.fp   = thetaParkPrev; break;
-      case 135: bf.fp   = edeltarad; break;
-      case 136: bf.fp   = eradpers_lp; break;
-      case 137: bf.fp   = erpm; break;
-      case 138: bf.fp   = thetaPark_enc; break;
-      case 139: bf.fp   = thetaPark_obs; break;
-      case 140: bf.fp   = thetaPark_obs_prev; break;
-      case 141: bf.fp   = thetaPark_vesc; break;
-      case 142: bf.fp   = co; break;
-      case 143: bf.fp   = si; break;
-      case 144: bf.fp   = D; break;
-      case 145: bf.fp   = Q; break;
-      case 146: bf.fp   = tA; break;
-      case 147: bf.fp   = tB; break;
-      case 148: bf.fp   = tC; break;
-      case 149: bf.fp   = Id_e; break;
-      case 150: bf.fp   = Id_SP; break;
-      case 151: bf.fp   = Iq_e; break;
-      case 152: bf.fp   = Iq_SP; break;
-      case 153: bf.fp   = ia; break;
-      case 154: bf.fp   = ib; break;
-      case 155: bf.fp   = ic; break;
-      case 156: bf.fp   = acc2; break;
-      case 157: bf.fp   = vel2; break;
-      case 158: bf.fp   = Ialpha2; break;
-      case 159: bf.fp   = Ibeta2; break;
-      case 160: bf.fp   = thetaPark2; break;
-      case 161: bf.fp   = co2; break;
-      case 162: bf.fp   = si2; break;
-      case 163: bf.fp   = D2; break;
-      case 164: bf.fp   = Q2; break;
-      case 165: bf.fp   = tA2; break;
-      case 166: bf.fp   = tB2; break;
-      case 167: bf.fp   = tC2; break;
-      case 168: bf.fp   = Id_e2; break;
-      case 169: bf.fp   = Id_SP2; break;
-      case 170: bf.fp   = Iq_e2; break;
-      case 171: bf.fp   = Iq_SP2; break;
-      case 172: bf.fp   = ia2; break;
-      case 173: bf.fp   = ib2; break;
-      case 174: bf.fp   = ic2; break;
-      case 175: bf.fp   = Vq_distgain; break;
-      case 176: bf.fp   = Vd_distgain; break;
-      case 177: bf.fp   = Iq_distgain; break;
-      case 178: bf.fp   = Id_distgain; break;
-      case 179: bf.fp   = mechdistgain; break;
-      case 180: bf.fp   = maxVolt; break;
-      case 181: bf.fp   = Vtot; break;
-      case 182: bf.fp   = max_edeltarad; break;
-      case 183: bf.fp   = N_pp; break;
-      case 184: bf.fp   = Kt_Nm_Arms; break;
-      case 185: bf.fp   = Kt_Nm_Apeak; break;
-      case 186: bf.fp   = we; break;
-      case 187: bf.fp   = Ld; break;
-      case 188: bf.fp   = Lq; break;
-      case 189: bf.fp   = Lambda_m; break;
-      case 190: bf.fp   = observer_gain; break;
-      case 191: bf.fp   = x1; break;
-      case 192: bf.fp   = x2; break;
-      case 193: bf.fp   = Kt_Nm_Arms2; break;
-      case 194: bf.fp   = Kt_Nm_Apeak2; break;
-      case 195: bf.fp   = we2; break;
-      case 196: bf.fp   = Ld2; break;
-      case 197: bf.fp   = Lq2; break;
-      case 198: bf.fp   = Lambda_m2; break;
-      case 199: bf.fp   = hfi_V; break;
-      case 200: bf.fp   = hfi_V_act; break;
-      case 201: bf.fp   = hfi_dir; break;
-      case 202: bf.fp   = hfi_dir_int; break;
-      case 203: bf.fp   = Valpha_offset_hfi; break;
-      case 204: bf.fp   = Vbeta_offset_hfi; break;
-      case 205: bf.fp   = hfi_curtot; break;
-      case 206: bf.fp   = hfi_curorttot; break;
-      case 207: bf.fp   = hfi_curprev; break;
-      case 208: bf.fp   = hfi_curortprev; break;
-      case 209: bf.fp   = hfi_gain; break;
-      case 210: bf.fp   = hfi_pgain; break;
-      case 211: bf.fp   = hfi_curangleest; break;
-      case 212: bf.fp   = hfi_dir_int2; break;
-      case 213: bf.fp   = hfi_gain_int2; break;
-      case 214: bf.fp   = hfi_Id_meas_low; break;
-      case 215: bf.fp   = hfi_Iq_meas_low; break;
-      case 216: bf.fp   = hfi_Id_meas_high; break;
-      case 217: bf.fp   = hfi_Iq_meas_high; break;
-      case 218: bf.fp   = delta_id; break;
-      case 219: bf.fp   = delta_iq; break;
-      case 220: bf.fp   = hfi_advance_factor; break;
-      case 221: bf.fp   = hfi_abs_pos; break;
-      case 222: bf.fp   = hfi_half_int_prev; break;
-      case 223: bf.fp   = hfi_prev; break;
-      case 224: bf.fp   = hfi_distgain; break;
-      case 225: bf.fp   = hfi_contout; break;
-      case 226: bf.fp   = hfi_error; break;
-      case 227: bf.fp   = hfi_ffw; break;
-      case 228: bf.fp   = hfi_maxvel; break;
-      case 229: bf.fp   = VqFF; break;
-      case 230: bf.fp   = VdFF; break;
-      case 231: bf.fp   = VqFF2; break;
-      case 232: bf.fp   = VdFF2; break;
-      case 233: bf.fp   = Iq_offset_SP; break;
-      case 234: bf.fp   = Id_offset_SP; break;
-      case 235: bf.fp   = Id_offset_SP2; break;
-      case 236: bf.fp   = Valpha_offset; break;
-      case 237: bf.fp   = Vbeta_offset; break;
-      case 238: bf.fp   = Valpha2_offset; break;
-      case 239: bf.sint = anglechoice; break;
-      case 240: bf.sint = timeremain; break;
-      case 241: bf.sint = spNgo; break;
-      case 242: bf.sint = REFstatus; break;
-      case 243: bf.sint = incomingByte; break;
-      case 244: bf.sint = encoderPos1; break;
-      case 245: bf.sint = encoderPos2; break;
-      case 246: bf.sint = enccountperrev; break;
-      case 247: bf.sint = enccountperrev2; break;
-      case 248: bf.sint = n_senscalib; break;
-      case 249: bf.sint = SP_input_status; break;
-      case 250: bf.sint = spGO; break;
-      case 251: bf.sint = hfi_cursample; break;
-      case 252: bf.sint = hfi_maxsamples; break;
-      case 253: bf.uint = ridethewave; break;
-      case 254: bf.uint = ridethewave2; break;
-      case 255: bf.uint = sendall; break;
-      case 256: bf.uint = curloop; break;
-      case 257: bf.uint = Ndownsample; break;
-      case 258: bf.uint = downsample; break;
-      case 259: bf.uint = Novervolt; break;
-      case 260: bf.uint = Novervolt2; break;
-      case 261: bf.uint = NdownsamplePRBS; break;
-      case 262: bf.uint = downsamplePRBS; break;
-      case 263: bf.uint = ss_n_aver; break;
-      case 264: bf.uint = IndexFound1; break;
-      case 265: bf.uint = IndexFound2; break;
-      case 266: bf.uint = Nsend; break;
-      case 267: bf.uint = timePrev; break;
-      case 268: bf.uint = curtime; break;
-      case 269: bf.uint = overloadcount; break;
-      case 270: bf.uint = useIlowpass; break;
-      case 271: bf.uint = ContSelect; break;
-      case 272: bf.uint = firsterror; break;
-      case 273: bf.uint = N_pp2; break;
-      case 274: bf.uint = hfi_method; break;
-      case 275: bf.bl   = SPdir; break;
-      case 276: bf.bl   = is_v7; break;
-      case 277: bf.bl   = haptic; break;
-      case 278: bf.bl   = revercommutation1; break;
-      case 279: bf.bl   = OutputOn; break;
-      case 280: bf.bl   = setupready; break;
-      case 281: bf.bl   = hfi_on; break;
-      case 282: bf.bl   = hfi_firstcycle; break;
-      case 283: bf.bl   = hfi_useforfeedback; break;
-      case 284: bf.bl   = hfi_use_lowpass; break;
-    }
-    Serial.write( bf.bin , 4);
+static inline void truncate_number(float *number, float min, float max) {
+  if (*number > max) {
+    *number = max;
+  } else if (*number < min) {
+    *number = min;
   }
 }
 
-void setpar( int isignal , binaryFloat bf ) {
-  switch( isignal ){
-    case   1: advancefactor = bf.fp; break;
-    case   2: i_vector_radpers = bf.fp; break;
-    case   3: i_vector_radpers_act = bf.fp; break;
-    case   4: i_vector_acc = bf.fp; break;
-    case   5: maxDutyCycle = bf.fp; break;
-    case   6: BEMFa = bf.fp; break;
-    case   7: BEMFb = bf.fp; break;
-    case   8: Ialpha_last = bf.fp; break;
-    case   9: Ibeta_last = bf.fp; break;
-    case  10: commutationoffset = bf.fp; break;
-    case  11: DQdisturbangle = bf.fp; break;
-    case  12: Vq = bf.fp; break;
-    case  13: Vd = bf.fp; break;
-    case  14: Valpha = bf.fp; break;
-    case  15: Vbeta = bf.fp; break;
-    case  16: thetawave = bf.fp; break;
-    case  17: Id_meas = bf.fp; break;
-    case  18: Iq_meas = bf.fp; break;
-    case  19: Id_meas_lp = bf.fp; break;
-    case  20: Iq_meas_lp = bf.fp; break;
-    case  21: VSP = bf.fp; break;
-    case  22: commutationoffset2 = bf.fp; break;
-    case  23: DQdisturbangle2 = bf.fp; break;
-    case  24: Vq2 = bf.fp; break;
-    case  25: Vd2 = bf.fp; break;
-    case  26: Valpha2 = bf.fp; break;
-    case  27: Vbeta2 = bf.fp; break;
-    case  28: thetawave2 = bf.fp; break;
-    case  29: Id_meas2 = bf.fp; break;
-    case  30: Iq_meas2 = bf.fp; break;
-    case  31: Id_meas2_lp = bf.fp; break;
-    case  32: Iq_meas2_lp = bf.fp; break;
-    case  33: Va = bf.fp; break;
-    case  34: Vb = bf.fp; break;
-    case  35: Vc = bf.fp; break;
-    case  36: Va2 = bf.fp; break;
-    case  37: Vb2 = bf.fp; break;
-    case  38: Vc2 = bf.fp; break;
-    case  45: mechcontout = bf.fp; break;
-    case  46: Iout = bf.fp; break;
-    case  47: mechcontout2 = bf.fp; break;
-    case  48: Iout2 = bf.fp; break;
-    case  49: muziek_gain = bf.fp; break;
-    case  50: muziek_gain_V = bf.fp; break;
-    case  51: distval = bf.fp; break;
-    case  52: distoff = bf.fp; break;
-    case  53: ss_phase = bf.fp; break;
-    case  54: ss_fstart = bf.fp; break;
-    case  55: ss_fstep = bf.fp; break;
-    case  56: ss_fend = bf.fp; break;
-    case  57: ss_gain = bf.fp; break;
-    case  58: ss_offset = bf.fp; break;
-    case  59: ss_f = bf.fp; break;
-    case  60: ss_tstart = bf.fp; break;
-    case  61: ss_out = bf.fp; break;
-    case  65: I_max = bf.fp; break;
-    case  66: V_Bus = bf.fp; break;
-    case  67: rmech = bf.fp; break;
-    case  68: rdelay = bf.fp; break;
-    case  69: emech1 = bf.fp; break;
-    case  70: ymech1 = bf.fp; break;
-    case  71: rmech2 = bf.fp; break;
-    case  72: emech2 = bf.fp; break;
-    case  73: ymech2 = bf.fp; break;
-    case  74: rmechoffset = bf.fp; break;
-    case  75: rmechoffset2 = bf.fp; break;
-    case  76: sensBus_lp = bf.fp; break;
-    case  77: Kp = bf.fp; break;
-    case  78: fBW = bf.fp; break;
-    case  79: alpha1 = bf.fp; break;
-    case  80: alpha2 = bf.fp; break;
-    case  81: fInt = bf.fp; break;
-    case  82: fLP = bf.fp; break;
-    case  83: Kp2 = bf.fp; break;
-    case  84: fBW2 = bf.fp; break;
-    case  85: alpha1_2 = bf.fp; break;
-    case  86: alpha2_2 = bf.fp; break;
-    case  87: fInt2 = bf.fp; break;
-    case  88: fLP2 = bf.fp; break;
-    case  89: Vout = bf.fp; break;
-    case  90: fIntCur = bf.fp; break;
-    case  91: Kp_iq = bf.fp; break;
-    case  92: Kp_id = bf.fp; break;
-    case  93: Ki_iq = bf.fp; break;
-    case  94: Ki_id = bf.fp; break;
-    case  95: vq_int_state = bf.fp; break;
-    case  96: vd_int_state = bf.fp; break;
-    case  97: Vout2 = bf.fp; break;
-    case  98: fIntCur2 = bf.fp; break;
-    case  99: Icontgain2 = bf.fp; break;
-    case 100: sensCalVal1 = bf.fp; break;
-    case 101: sensCalVal2 = bf.fp; break;
-    case 102: sensCalVal3 = bf.fp; break;
-    case 103: sensCalVal4 = bf.fp; break;
-    case 104: sens1 = bf.fp; break;
-    case 105: sens2 = bf.fp; break;
-    case 106: sens3 = bf.fp; break;
-    case 107: sens4 = bf.fp; break;
-    case 108: sens1_lp = bf.fp; break;
-    case 109: sens2_lp = bf.fp; break;
-    case 110: sens3_lp = bf.fp; break;
-    case 111: sens4_lp = bf.fp; break;
-    case 112: sens1_calib = bf.fp; break;
-    case 113: sens2_calib = bf.fp; break;
-    case 114: sens3_calib = bf.fp; break;
-    case 115: sens4_calib = bf.fp; break;
-    case 116: sensBus = bf.fp; break;
-    case 117: I_bus = bf.fp; break;
-    case 118: P_tot = bf.fp; break;
-    case 119: Busadc2Vbus = bf.fp; break;
-    case 120: Jload = bf.fp; break;
-    case 121: velFF = bf.fp; break;
-    case 122: R = bf.fp; break;
-    case 123: Jload2 = bf.fp; break;
-    case 124: velFF2 = bf.fp; break;
-    case 125: offsetVelTot = bf.fp; break;
-    case 126: offsetVel = bf.fp; break;
-    case 127: offsetVel_lp = bf.fp; break;
-    case 128: acc = bf.fp; break;
-    case 129: vel = bf.fp; break;
-    case 130: dist = bf.fp; break;
-    case 131: Ialpha = bf.fp; break;
-    case 132: Ibeta = bf.fp; break;
-    case 133: thetaPark = bf.fp; break;
-    case 134: thetaParkPrev = bf.fp; break;
-    case 135: edeltarad = bf.fp; break;
-    case 136: eradpers_lp = bf.fp; break;
-    case 137: erpm = bf.fp; break;
-    case 138: thetaPark_enc = bf.fp; break;
-    case 139: thetaPark_obs = bf.fp; break;
-    case 140: thetaPark_obs_prev = bf.fp; break;
-    case 141: thetaPark_vesc = bf.fp; break;
-    case 142: co = bf.fp; break;
-    case 143: si = bf.fp; break;
-    case 144: D = bf.fp; break;
-    case 145: Q = bf.fp; break;
-    case 146: tA = bf.fp; break;
-    case 147: tB = bf.fp; break;
-    case 148: tC = bf.fp; break;
-    case 149: Id_e = bf.fp; break;
-    case 150: Id_SP = bf.fp; break;
-    case 151: Iq_e = bf.fp; break;
-    case 152: Iq_SP = bf.fp; break;
-    case 153: ia = bf.fp; break;
-    case 154: ib = bf.fp; break;
-    case 155: ic = bf.fp; break;
-    case 156: acc2 = bf.fp; break;
-    case 157: vel2 = bf.fp; break;
-    case 158: Ialpha2 = bf.fp; break;
-    case 159: Ibeta2 = bf.fp; break;
-    case 160: thetaPark2 = bf.fp; break;
-    case 161: co2 = bf.fp; break;
-    case 162: si2 = bf.fp; break;
-    case 163: D2 = bf.fp; break;
-    case 164: Q2 = bf.fp; break;
-    case 165: tA2 = bf.fp; break;
-    case 166: tB2 = bf.fp; break;
-    case 167: tC2 = bf.fp; break;
-    case 168: Id_e2 = bf.fp; break;
-    case 169: Id_SP2 = bf.fp; break;
-    case 170: Iq_e2 = bf.fp; break;
-    case 171: Iq_SP2 = bf.fp; break;
-    case 172: ia2 = bf.fp; break;
-    case 173: ib2 = bf.fp; break;
-    case 174: ic2 = bf.fp; break;
-    case 175: Vq_distgain = bf.fp; break;
-    case 176: Vd_distgain = bf.fp; break;
-    case 177: Iq_distgain = bf.fp; break;
-    case 178: Id_distgain = bf.fp; break;
-    case 179: mechdistgain = bf.fp; break;
-    case 180: maxVolt = bf.fp; break;
-    case 181: Vtot = bf.fp; break;
-    case 182: max_edeltarad = bf.fp; break;
-    case 183: N_pp = bf.fp; break;
-    case 184: Kt_Nm_Arms = bf.fp; break;
-    case 185: Kt_Nm_Apeak = bf.fp; break;
-    case 186: we = bf.fp; break;
-    case 187: Ld = bf.fp; break;
-    case 188: Lq = bf.fp; break;
-    case 189: Lambda_m = bf.fp; break;
-    case 190: observer_gain = bf.fp; break;
-    case 191: x1 = bf.fp; break;
-    case 192: x2 = bf.fp; break;
-    case 193: Kt_Nm_Arms2 = bf.fp; break;
-    case 194: Kt_Nm_Apeak2 = bf.fp; break;
-    case 195: we2 = bf.fp; break;
-    case 196: Ld2 = bf.fp; break;
-    case 197: Lq2 = bf.fp; break;
-    case 198: Lambda_m2 = bf.fp; break;
-    case 199: hfi_V = bf.fp; break;
-    case 200: hfi_V_act = bf.fp; break;
-    case 201: hfi_dir = bf.fp; break;
-    case 202: hfi_dir_int = bf.fp; break;
-    case 203: Valpha_offset_hfi = bf.fp; break;
-    case 204: Vbeta_offset_hfi = bf.fp; break;
-    case 205: hfi_curtot = bf.fp; break;
-    case 206: hfi_curorttot = bf.fp; break;
-    case 207: hfi_curprev = bf.fp; break;
-    case 208: hfi_curortprev = bf.fp; break;
-    case 209: hfi_gain = bf.fp; break;
-    case 210: hfi_pgain = bf.fp; break;
-    case 211: hfi_curangleest = bf.fp; break;
-    case 212: hfi_dir_int2 = bf.fp; break;
-    case 213: hfi_gain_int2 = bf.fp; break;
-    case 214: hfi_Id_meas_low = bf.fp; break;
-    case 215: hfi_Iq_meas_low = bf.fp; break;
-    case 216: hfi_Id_meas_high = bf.fp; break;
-    case 217: hfi_Iq_meas_high = bf.fp; break;
-    case 218: delta_id = bf.fp; break;
-    case 219: delta_iq = bf.fp; break;
-    case 220: hfi_advance_factor = bf.fp; break;
-    case 221: hfi_abs_pos = bf.fp; break;
-    case 222: hfi_half_int_prev = bf.fp; break;
-    case 223: hfi_prev = bf.fp; break;
-    case 224: hfi_distgain = bf.fp; break;
-    case 225: hfi_contout = bf.fp; break;
-    case 226: hfi_error = bf.fp; break;
-    case 227: hfi_ffw = bf.fp; break;
-    case 228: hfi_maxvel = bf.fp; break;
-    case 229: VqFF = bf.fp; break;
-    case 230: VdFF = bf.fp; break;
-    case 231: VqFF2 = bf.fp; break;
-    case 232: VdFF2 = bf.fp; break;
-    case 233: Iq_offset_SP = bf.fp; break;
-    case 234: Id_offset_SP = bf.fp; break;
-    case 235: Id_offset_SP2 = bf.fp; break;
-    case 236: Valpha_offset = bf.fp; break;
-    case 237: Vbeta_offset = bf.fp; break;
-    case 238: Valpha2_offset = bf.fp; break;
-    case 239: anglechoice = bf.sint; break;
-    case 240: timeremain = bf.sint; break;
-    case 241: spNgo = bf.sint; break;
-    case 242: REFstatus = bf.sint; break;
-    case 243: incomingByte = bf.sint; break;
-    case 244: encoderPos1 = bf.sint; break;
-    case 245: encoderPos2 = bf.sint; break;
-    case 248: n_senscalib = bf.sint; break;
-    case 249: SP_input_status = bf.sint; break;
-    case 250: spGO = bf.sint; break;
-    case 251: hfi_cursample = bf.sint; break;
-    case 252: hfi_maxsamples = bf.sint; break;
-    case 253: ridethewave = bf.uint; break;
-    case 254: ridethewave2 = bf.uint; break;
-    case 255: sendall = bf.uint; break;
-    case 256: curloop = bf.uint; break;
-    case 257: Ndownsample = bf.uint; break;
-    case 258: downsample = bf.uint; break;
-    case 259: Novervolt = bf.uint; break;
-    case 260: Novervolt2 = bf.uint; break;
-    case 261: NdownsamplePRBS = bf.uint; break;
-    case 262: downsamplePRBS = bf.uint; break;
-    case 263: ss_n_aver = bf.uint; break;
-    case 264: IndexFound1 = bf.uint; break;
-    case 265: IndexFound2 = bf.uint; break;
-    case 266: Nsend = bf.uint; break;
-    case 267: timePrev = bf.uint; break;
-    case 268: curtime = bf.uint; break;
-    case 269: overloadcount = bf.uint; break;
-    case 270: useIlowpass = bf.uint; break;
-    case 271: ContSelect = bf.uint; break;
-    case 272: firsterror = bf.uint; break;
-    case 273: N_pp2 = bf.uint; break;
-    case 274: hfi_method = bf.uint; break;
-    case 275: SPdir = bf.bl; break;
-    case 276: is_v7 = bf.bl; break;
-    case 277: haptic = bf.bl; break;
-    case 278: revercommutation1 = bf.bl; break;
-    case 279: OutputOn = bf.bl; break;
-    case 280: setupready = bf.bl; break;
-    case 281: hfi_on = bf.bl; break;
-    case 282: hfi_firstcycle = bf.bl; break;
-    case 283: hfi_useforfeedback = bf.bl; break;
-    case 284: hfi_use_lowpass = bf.bl; break;
+static inline void truncate_number_int(int *number, int min, int max) {
+  if (*number > max) {
+    *number = max;
+  } else if (*number < min) {
+    *number = min;
   }
 }
 
-void printSignals( unsigned int selected ) {
-  const char *signalNames[] = { "Ts", "advancefactor", "i_vector_radpers", "i_vector_radpers_act", "i_vector_acc", "maxDutyCycle", "BEMFa", "BEMFb", "Ialpha_last", "Ibeta_last", "commutationoffset", "DQdisturbangle", "Vq", "Vd", "Valpha", "Vbeta", "thetawave", "Id_meas", "Iq_meas", "Id_meas_lp", "Iq_meas_lp", "VSP", "commutationoffset2", "DQdisturbangle2", "Vq2", "Vd2", "Valpha2", "Vbeta2", "thetawave2", "Id_meas2", "Iq_meas2", "Id_meas2_lp", "Iq_meas2_lp", "Va", "Vb", "Vc", "Va2", "Vb2", "Vc2", "adc2A1", "adc2A2", "one_by_sqrt3", "two_by_sqrt3", "sqrt_two_three", "sqrt3_by_2", "mechcontout", "Iout", "mechcontout2", "Iout2", "muziek_gain", "muziek_gain_V", "distval", "distoff", "ss_phase", "ss_fstart", "ss_fstep", "ss_fend", "ss_gain", "ss_offset", "ss_f", "ss_tstart", "ss_out", "T", "enc2rad", "enc2rad2", "I_max", "V_Bus", "rmech", "rdelay", "emech1", "ymech1", "rmech2", "emech2", "ymech2", "rmechoffset", "rmechoffset2", "sensBus_lp", "Kp", "fBW", "alpha1", "alpha2", "fInt", "fLP", "Kp2", "fBW2", "alpha1_2", "alpha2_2", "fInt2", "fLP2", "Vout", "fIntCur", "Kp_iq", "Kp_id", "Ki_iq", "Ki_id", "vq_int_state", "vd_int_state", "Vout2", "fIntCur2", "Icontgain2", "sensCalVal1", "sensCalVal2", "sensCalVal3", "sensCalVal4", "sens1", "sens2", "sens3", "sens4", "sens1_lp", "sens2_lp", "sens3_lp", "sens4_lp", "sens1_calib", "sens2_calib", "sens3_calib", "sens4_calib", "sensBus", "I_bus", "P_tot", "Busadc2Vbus", "Jload", "velFF", "R", "Jload2", "velFF2", "offsetVelTot", "offsetVel", "offsetVel_lp", "acc", "vel", "dist", "Ialpha", "Ibeta", "thetaPark", "thetaParkPrev", "edeltarad", "eradpers_lp", "erpm", "thetaPark_enc", "thetaPark_obs", "thetaPark_obs_prev", "thetaPark_vesc", "co", "si", "D", "Q", "tA", "tB", "tC", "Id_e", "Id_SP", "Iq_e", "Iq_SP", "ia", "ib", "ic", "acc2", "vel2", "Ialpha2", "Ibeta2", "thetaPark2", "co2", "si2", "D2", "Q2", "tA2", "tB2", "tC2", "Id_e2", "Id_SP2", "Iq_e2", "Iq_SP2", "ia2", "ib2", "ic2", "Vq_distgain", "Vd_distgain", "Iq_distgain", "Id_distgain", "mechdistgain", "maxVolt", "Vtot", "max_edeltarad", "N_pp", "Kt_Nm_Arms", "Kt_Nm_Apeak", "we", "Ld", "Lq", "Lambda_m", "observer_gain", "x1", "x2", "Kt_Nm_Arms2", "Kt_Nm_Apeak2", "we2", "Ld2", "Lq2", "Lambda_m2", "hfi_V", "hfi_V_act", "hfi_dir", "hfi_dir_int", "Valpha_offset_hfi", "Vbeta_offset_hfi", "hfi_curtot", "hfi_curorttot", "hfi_curprev", "hfi_curortprev", "hfi_gain", "hfi_pgain", "hfi_curangleest", "hfi_dir_int2", "hfi_gain_int2", "hfi_Id_meas_low", "hfi_Iq_meas_low", "hfi_Id_meas_high", "hfi_Iq_meas_high", "delta_id", "delta_iq", "hfi_advance_factor", "hfi_abs_pos", "hfi_half_int_prev", "hfi_prev", "hfi_distgain", "hfi_contout", "hfi_error", "hfi_ffw", "hfi_maxvel", "VqFF", "VdFF", "VqFF2", "VdFF2", "Iq_offset_SP", "Id_offset_SP", "Id_offset_SP2", "Valpha_offset", "Vbeta_offset", "Valpha2_offset", "anglechoice", "timeremain", "spNgo", "REFstatus", "incomingByte", "encoderPos1", "encoderPos2", "enccountperrev", "enccountperrev2", "n_senscalib", "SP_input_status", "spGO", "hfi_cursample", "hfi_maxsamples", "ridethewave", "ridethewave2", "sendall", "curloop", "Ndownsample", "downsample", "Novervolt", "Novervolt2", "NdownsamplePRBS", "downsamplePRBS", "ss_n_aver", "IndexFound1", "IndexFound2", "Nsend", "timePrev", "curtime", "overloadcount", "useIlowpass", "ContSelect", "firsterror", "N_pp2", "hfi_method", "SPdir", "is_v7", "haptic", "revercommutation1", "OutputOn", "setupready", "hfi_on", "hfi_firstcycle", "hfi_useforfeedback", "hfi_use_lowpass",  };
-  const char *signalTypes[] = { "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "f", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "i", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "I", "b", "b", "b", "b", "b", "b", "b", "b", "b", "b",  };
-  int imax = 10;
-  switch(selected){
-    case 0: imax = 285; break;
+static inline void truncate_number_abs(float *number, float max) {
+  if (*number > max) {
+    *number = max;
+  } else if (*number < -max) {
+    *number = -max;
   }
-  for ( int i = 0; i < imax; i++) {
-    Serial.println( signalNames[i] );
-    Serial.println( signalTypes[i] );
+}
+
+void error( int ierror ,  mot_state_t* stateX ) {
+  motor.state1.OutputOn = false;
+  motor.state2.OutputOn = false;
+  digitalWrite( ENGATE , 0);
+  digitalWrite( ENGATE2 , 0);
+  if (motor.state.firsterror == 0) {
+    motor.state.firsterror = ierror;
+    stateX->firsterror = ierror;
   }
 }

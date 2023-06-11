@@ -84,7 +84,7 @@ void MotionProfile::init() {
 }
 
 
-float MotionProfile::p2p_get_b( double t ){
+double MotionProfile::p2p_get_b( double t ){
     if (t <= REFt0) {
         jref = 0;
         aref = 0;
@@ -177,7 +177,7 @@ float MotionProfile::p2p_get_b( double t ){
 
 
 
-float MotionProfile::stateCalculation( int input_status) {
+double MotionProfile::stateCalculation( int input_status) {
         
     if (input_status ==0) {
         REFstatus = 0;

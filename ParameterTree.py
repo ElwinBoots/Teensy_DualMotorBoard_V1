@@ -1,20 +1,24 @@
 from pyqtgraph.parametertree import Parameter, ParameterTree
 import pyqtgraph as pg
-from pyqtgraph.Qt import QtGui, QtCore, QtWidgets
+from pyqtgraph.Qt import QtCore, QtWidgets
 
 
+# df = getallsignals()
 df = readall()
+
+
 params = list()
-for i in np.argsort( ser.signames):
-    if ser.sigtypes[i] == 'f':
+for i in np.argsort( signames):
+    if sigtypes[i] == 'f':
         sertype = 'float'
-    if ser.sigtypes[i] == 'b':
+    if sigtypes[i] == 'b':
         sertype = 'bool'
-    if ser.sigtypes[i] == 'i':
+    if sigtypes[i] == 'i':
         sertype = 'int'
-    if ser.sigtypes[i] == 'I':
+    if sigtypes[i] == 'I':
         sertype = 'int'
-    params.append( {'name' : ser.signames[i]  , 'type':  sertype , 'value': df[ser.signames[i]][0] } )    
+    if not (type(df[signames[i]][0]) == np.ndarray):
+        params.append( {'name' : signames[i]  , 'type':  sertype , 'value': df[signames[i]][0] } )    
    
 _params = Parameter.create(name='params', type='group',      children=params)
 # _params = Parameter.create(name='params',     children=params)
@@ -46,16 +50,16 @@ def _enable_apply( param, changes):
 def update():
     df = readall()
     params = list()
-    for i in range(len(ser.signames)):
-        if ser.sigtypes[i] == 'f':
+    for i in range(len(signames)):
+        if sigtypes[i] == 'f':
             sertype = 'float'
-        if ser.sigtypes[i] == 'b':
+        if sigtypes[i] == 'b':
             sertype = 'bool'
-        if ser.sigtypes[i] == 'i':
+        if sigtypes[i] == 'i':
             sertype = 'int'
-        if ser.sigtypes[i] == 'I':
+        if sigtypes[i] == 'I':
             sertype = 'int'
-        params.append( {'name' : ser.signames[i]  , 'type':  sertype , 'value': df[ser.signames[i]][0] } )    
+        params.append( {'name' : signames[i]  , 'type':  sertype , 'value': df[signames[i]][0] } )    
     # _params = Parameter.create(name='params', type='group',      children=params)
     # _params.setValue( params )
     _params.sigTreeStateChanged.disconnect()
@@ -99,32 +103,27 @@ t.setParameters(_params, showTop=False)
 
 
 win = pg.GraphicsLayoutWidget()
-# layout = QtGui.QGridLayout()
 layout = QtWidgets.QGridLayout()
 
 layout.addWidget(t, 0, 0)
 
-apply_btn = QtGui.QPushButton('Apply Changes')
+apply_btn = QtWidgets.QPushButton('Apply Changes')
 apply_btn.clicked.connect(apply_parameters)
 apply_btn.setStyleSheet("background-color: grey")
 layout.addWidget( apply_btn, 1, 0)
 
-update_btn = QtGui.QPushButton('Update')
+update_btn = QtWidgets.QPushButton('Update')
 update_btn.clicked.connect( update )
 update_btn.setStyleSheet("background-color: green")
 layout.addWidget( update_btn, 2, 0)
 
 win.resize( 500, 1000)
 win.setLayout(layout)
-win.show()
+win.show() 
 
 od = _params.getValues()
 d = {k : od[k][0] for k in od}
 
-
-
-
-#%%
 
 
 
