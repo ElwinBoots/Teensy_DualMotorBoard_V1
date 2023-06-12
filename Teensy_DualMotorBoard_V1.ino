@@ -620,8 +620,6 @@ void Control( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX) {
   if (stateX->OutputOn) {
     stateX->mechcontout += stateX->T_FF_acc;
     stateX->mechcontout += stateX->T_FF_vel;    
-    stateX->vq_int_state = 0;
-    stateX->vd_int_state = 0;
   }
 
   stateX->Iq_SP = stateX->mechcontout / (1.5 * confX->N_pp * confX->Lambda_m );
@@ -879,6 +877,8 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     else {
       stateX->Id_e = 0;
       stateX->Iq_e = 0;
+      stateX->vq_int_state = 0;
+      stateX->vd_int_state = 0;
     }
 
     stateX->Kp_iq_out = confX->Kp_iq * stateX->Iq_e;
