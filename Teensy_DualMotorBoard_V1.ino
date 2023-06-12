@@ -1096,7 +1096,7 @@ void communicationProcess() {
         }
         Serial.write( trace.pointers[i] , trace.lengths[i]);
       }
-      if ( trace.n_to_send < 1e6) {
+      if ( trace.n_to_send < 4294967294) {
         trace.n_to_send--;
       }
     }
