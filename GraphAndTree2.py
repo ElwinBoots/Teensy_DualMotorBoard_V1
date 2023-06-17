@@ -6,8 +6,8 @@ from pyqtgraph.parametertree import Parameter, ParameterTree
 from pyqtgraph.Qt import QtCore, QtWidgets
 from pyqtgraph.widgets.PlotWidget import PlotWidget
 
-pg.setConfigOption('background', 'w')
-pg.setConfigOption('foreground', 'k')
+pg.setConfigOption('background', 'k')
+pg.setConfigOption('foreground', 'w')
 
 maxdata = 2000
 Tsample = 0.01
@@ -363,7 +363,7 @@ thread.start()
 
 
 # thread.startdata( [ 'motor.state1.Id_SP', 'motor.state1.Iq_SP', 'motor.state1.Id_meas', 'motor.state1.Iq_meas', 'motor.state1.encoderPos1', 'motor.state1.encoderPos2','motor.state1.Vd','motor.state1.Vq','motor.state1.maxVolt'] )
-thread.startdata( [ 'motor.state1.Id_SP', 'motor.state1.Iq_SP', 'motor.state1.Id_meas', 'motor.state1.Iq_meas', 'motor.state1.thetaPark_enc', 'motor.state1.thetaPark_obs','motor.state1.Vd','motor.state1.Vq','motor.state1.maxVolt'] )
+thread.startdata( [ 'motor.state1.Iq_SP', 'motor.state2.Iq_SP', 'motor.state1.Iq_meas', 'motor.state2.Iq_meas', 'motor.state1.thetaPark_enc', 'motor.state1.thetaPark_obs','motor.state1.Vd','motor.state1.Vq','motor.state1.maxVolt'] )
 
 
 

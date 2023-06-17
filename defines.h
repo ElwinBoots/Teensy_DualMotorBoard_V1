@@ -57,7 +57,7 @@ typedef struct mot_conf_t {
   float Ki_id; //Series PI controller. Ki = w0. Choose this to be R / Ld.
   float lowpass_Vq_c;
   float lowpass_Vd_c;
-  
+
   float max_edeltarad;
   float N_pp; //Number of pole pairs
   unsigned int clipMethod;
@@ -84,14 +84,14 @@ typedef struct mot_conf_t {
   float alpha2;
   float fInt;
   float fLP;
- 
+
   unsigned int useIlowpass;
 } mot_conf_t;
 
 typedef struct mot_state_t {
-  float T_FF_acc; 
-  float T_FF_vel; 
- 
+  float T_FF_acc;
+  float T_FF_vel;
+
   float i_vector_radpers_act;
   float BEMFa;
   float BEMFb;
@@ -215,7 +215,7 @@ typedef struct mot_state_t {
   float Vd_biquadout;
   bool SPdir;
   int spNgo;
-  
+
   bool hfi_on;
   float hfi_V;
   float hfi_V_act;
