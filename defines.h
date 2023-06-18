@@ -46,7 +46,6 @@ typedef struct mot_conf_t {
   float commutationoffset;
   float adc2A;
   float ss_gain;
-  float ss_offset;
   int enccountperrev;
   double enc2rad;
   float I_max;
@@ -78,17 +77,14 @@ typedef struct mot_conf_t {
   float Kd_prep;
   float lowpass_c_prep;
   float enc_transmission;
-
-  float fBW;
-  float alpha1;
-  float alpha2;
-  float fInt;
-  float fLP;
-
-  unsigned int useIlowpass;
 } mot_conf_t;
 
 typedef struct mot_state_t {
+  float streambuffer[10000];
+  unsigned int curbuffer;
+  float buffergain;
+  bool runstream;
+  
   float T_FF_acc;
   float T_FF_vel;
 
@@ -150,6 +146,7 @@ typedef struct mot_state_t {
   double offsetVelTot;
   float offsetVel;
   float offsetVel_lp;
+  float jerk;
   float acc;
   float vel;
 

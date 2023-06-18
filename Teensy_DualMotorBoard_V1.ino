@@ -11,38 +11,15 @@
 #include "defines.h"
 #include "trace.h"
 
-Biquad *lowpass        = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
-Biquad *lowpass_eradpers   = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
-//Biquad *notch          = new Biquad( bq_type_notch , 2315.0, -20.0, 0.1 , 2 * F_PWM );
-
 Biquad *Biquads1[6];
 Biquad *Biquads2[6];
 
-//Current lowpass (now used at sensor level, maybe better at id,iq level?). Doesn't seem to matter much.
-Biquad *lowpassIsens1  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * F_PWM);
-Biquad *lowpassIsens2  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * F_PWM);
-Biquad *lowpassIsens3  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * F_PWM);
-Biquad *lowpassIsens4  = new Biquad( bq_type_lowpass , 10e3 , 0.7, 2 * F_PWM);
-
-//These are now used for power and bus current estimates
-Biquad *lowpassId1  = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
-Biquad *lowpassIq1  = new Biquad( bq_type_lowpass , 50 , 0.7, 2 * F_PWM);
-
 Biquad *hfi_lowpass = new Biquad( bq_type_lowpass , 2000 , 0.707, 2 * F_PWM);
 
-// For setpoint
-Biquad *lowpassSP = new Biquad( bq_type_lowpass , 10 , 0.707, 2 * F_PWM);
+//Initialize setpoint generators
+MotionProfile *SPprofile1 = new MotionProfile( 0 , 0.0005 , 0.0193 , 0 , 3.14 , 157 , 7853 , 15632147 , 1 / (2 * F_PWM) );
+MotionProfile *SPprofile2 = new MotionProfile( 0 , 0.0005 , 0.0193 , 0 , 3.14 , 157 , 7853 , 15632147 , 1 / (2 * F_PWM) );
 
-//fast 180 deg:
-MotionProfile *SPprofile1 = new MotionProfile( 0 , 0.000500000000000000 , 0.0193000000000000 , 0 , 3.14159265358979 , 157.079632679490 , 7853.98163397448 , 15632147.3532855 , 1 / (2 * F_PWM) );
-MotionProfile *SPprofile2 = new MotionProfile( 0 , 0.000500000000000000 , 0.0193000000000000 , 0 , 3.14159265358979 , 157.079632679490 , 7853.98163397448 , 15632147.3532855 , 1 / (2 * F_PWM) );
-
-Biquad *lowpass_ss_offset = new Biquad( bq_type_lowpass , 10 , 0.707, 2 * F_PWM);
-
-//There are 4 hardware quadrature encoder channels available the Teensy 4.x.
-//The Teensy 4.1 Encoders are supported on pins: 0, 1, 2, 3, 4, 5, 7, 30, 31, 33, 36 and 37.
-//WARNING! Pins 0, 5 and 37 share the same internal crossbar connections and are as such exclusive...pick one or the other.
-//Same thing applies to pins 1 / 36 and 5 / 37.
 QuadEncoder Encoder1(1, 0, 1 , 0 , 3);   //Encoder 1 on pins 0 and 1, index on pin 3
 QuadEncoder Encoder2(2, 30, 31 , 0 , 33);//Encoder 2 on pins 30 and 31, index on pin 33
 
@@ -53,8 +30,8 @@ void initparams( motor_total_t* m ) {
   m->conf.V_Bus = 24; //Bus Voltage
   m->conf.Ndownsample = 1;
 
-  m->state1.OutputOn = true;
-  m->state2.OutputOn = true;
+  m->state1.OutputOn = false;
+  m->state2.OutputOn = false;
 
   initmotor( &m->conf1 , &m->state1);
   initmotor( &m->conf2 , &m->state2);
@@ -83,11 +60,6 @@ void initmotor( mot_conf_t* m , mot_state_t* state ) {
   m->Lambda_m = 0.01; //[Weber] Note: on the fly changes of Kt do not adjust this value!
   m->Kt_Nm_Apeak = 1.5 * m->N_pp * m->Lambda_m ;
   m->Kp = 0;
-  m->fBW = 50.0;
-  m->alpha1 = 3.0;
-  m->alpha2 = 4.0;
-  m->fInt = m->fBW / 6.0;
-  m->fLP = m->fBW * 6.0;
 }
 
 void setup() {
@@ -121,7 +93,8 @@ void setup() {
   FLEXPWM2_OUTEN |= FLEXPWM_OUTEN_PWMA_EN( 7 ); // Activate all A channels
   FLEXPWM4_OUTEN |= FLEXPWM_OUTEN_PWMA_EN( 7 ); // Activate all A channels
 
-  delay(100); //Allow the lowpass filters in current measurement to settle before calibration
+  delay(1);
+  changePWM();
   motor.state.setupready = 1;
 }
 
@@ -187,7 +160,7 @@ void adc_init() {
   while (ADC1_GC & ADC_GC_CAL) ;
   ADC2_GC |= ADC_GC_CAL;   // begin cal ADC2
   while (ADC2_GC & ADC_GC_CAL) ;
-  
+
   ADC1_HC0 = 16;   // ADC_ETC channel
   ADC2_HC0 = 16;
 }
@@ -255,12 +228,12 @@ void flexpwm2_init() {     //set PWM
   FLEXPWM2_SM1INIT = -FLEXPWM2_SM1VAL1; //Good for center aligned PWM, see manual
   FLEXPWM2_SM2INIT = -FLEXPWM2_SM2VAL1; //Good for center aligned PWM, see manual
 
-  FLEXPWM2_SM0VAL3 = FLEXPWM2_SM0VAL1 / 2; //50% duty cycle
-  FLEXPWM2_SM0VAL2 = -FLEXPWM2_SM0VAL3; //50% duty cycle
-  FLEXPWM2_SM1VAL3 = FLEXPWM2_SM0VAL1 / 2; //50% duty cycle
-  FLEXPWM2_SM1VAL2 = -FLEXPWM2_SM0VAL3; //50% duty cycle
-  FLEXPWM2_SM2VAL3 = FLEXPWM2_SM0VAL1 / 2; //50% duty cycle
-  FLEXPWM2_SM2VAL2 = -FLEXPWM2_SM0VAL3; //50% duty cycle
+  FLEXPWM2_SM0VAL3 = 0; //Start with 0 to avoid glitch at startup
+  FLEXPWM2_SM0VAL2 = 0;
+  FLEXPWM2_SM1VAL3 = 0;
+  FLEXPWM2_SM1VAL2 = 0;
+  FLEXPWM2_SM2VAL3 = 0;
+  FLEXPWM2_SM2VAL2 = 0;
 
   //int adc_shift = 0; //New idea. Do not shift the ADC. Probably the ADC takes a quick sample of the signal at the right moment, rest of the time is to get the value.
   //Back to old idea of shifting. Current measurements are better this way (less issue when high duty cycle:
@@ -299,13 +272,13 @@ void flexpwm4_init() {     //set PWM
   FLEXPWM4_SM1INIT = -FLEXPWM4_SM1VAL1; //Good for center aligned PWM, see manual
   FLEXPWM4_SM2INIT = -FLEXPWM4_SM2VAL1; //Good for center aligned PWM, see manual
 
-  FLEXPWM4_SM0VAL3 = FLEXPWM4_SM0VAL1 / 2; //50% duty cycle
-  FLEXPWM4_SM0VAL2 = -FLEXPWM4_SM0VAL3; //50% duty cycle
-  FLEXPWM4_SM1VAL3 = FLEXPWM4_SM0VAL1 / 2; //50% duty cycle
-  FLEXPWM4_SM1VAL2 = -FLEXPWM4_SM0VAL3; //50% duty cycle
-  FLEXPWM4_SM2VAL3 = FLEXPWM4_SM0VAL1 / 2; //50% duty cycle
-  FLEXPWM4_SM2VAL2 = -FLEXPWM4_SM0VAL3; //50% duty cycle
-
+  FLEXPWM4_SM0VAL3 = 0; //Start with 0 to avoid glitch at startup
+  FLEXPWM4_SM0VAL2 = 0;
+  FLEXPWM4_SM1VAL3 = 0;
+  FLEXPWM4_SM1VAL2 = 0;
+  FLEXPWM4_SM2VAL3 = 0;
+  FLEXPWM4_SM2VAL2 = 0;
+  
   //int adc_shift = 0; //New idea. Do not shift the ADC. Probably the ADC takes a quick sample of the signal at the right moment, rest of the time is to get the value.
   //Back to old idea of shifting. Current measurements are better this way (less issue when high duty cycle:
   const int adc_shift = 0; //Tuned by making it finish at the switch moment, then divide offset by 2.
@@ -347,16 +320,16 @@ void syncflexpwm() {
 
 void Encoders_init() {
   Encoder1.setInitConfig();
-  Encoder1.EncConfig.filterCount = 0;
-  Encoder1.EncConfig.filterSamplePeriod = 0;
+  Encoder1.EncConfig.filterCount = 3; //Bit of filtering to avoid spurious triggering.
+  Encoder1.EncConfig.filterSamplePeriod = 3; //Bit of filtering to avoid spurious triggering.
   Encoder1.EncConfig.INDEXTriggerMode  = 1;
   Encoder1.EncConfig.IndexTrigger  = 1;
   Encoder1.EncConfig.positionInitialValue = 0;
   Encoder1.init();
 
   Encoder2.setInitConfig();
-  Encoder2.EncConfig.filterCount = 0;
-  Encoder2.EncConfig.filterSamplePeriod = 0;
+  Encoder2.EncConfig.filterCount = 3; //Bit of filtering to avoid spurious triggering.
+  Encoder2.EncConfig.filterSamplePeriod = 3; //Bit of filtering to avoid spurious triggering.
   Encoder2.EncConfig.INDEXTriggerMode = 1;
   Encoder2.EncConfig.IndexTrigger  = 1;
   Encoder2.EncConfig.positionInitialValue = 0;
@@ -382,39 +355,22 @@ void adcetc1_isr() {
 
   //ADC1:
   motor.state.sens1 = (ADC_ETC_TRIG0_RESULT_1_0 & 4095) * 0.0008058608; // 4095.0 * 3.3;
-  motor.state.sens1_lp = lowpassIsens1->process( motor.state.sens1 );
   motor.state.sens3 = ((ADC_ETC_TRIG0_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
-  motor.state.sens3_lp = lowpassIsens3->process( motor.state.sens3 );
   motor.state.sensBus = (ADC_ETC_TRIG0_RESULT_3_2 & 4095) * motor.conf.Busadc2Vbus;   // 4095.0 * 3.3 * ((68.3+5.05)/5.05);
   LOWPASS( motor.state.sensBus_lp , motor.state.sensBus, 0.1 ); //1000 Hz when running at 60 kHz
 
   //ADC2:
   motor.state.sens2 = (ADC_ETC_TRIG4_RESULT_1_0 & 4095) * 0.0008058608; // 4095.0 * 3.3;
-  motor.state.sens2_lp = lowpassIsens2->process( motor.state.sens2 );
   motor.state.sens4 = ((ADC_ETC_TRIG4_RESULT_1_0 >> 16) & 4095) * 0.0008058608; // 4095.0 * 3.3;
-  motor.state.sens4_lp = lowpassIsens4->process( motor.state.sens4 );
   motor.state.sensBus2 = (ADC_ETC_TRIG4_RESULT_3_2 & 4095) * motor.conf.Busadc2Vbus;   // 4095.0 * 3.3 * ((68.3+5.05)/5.05);
 
   // Calculate currents (links sensors to axes, to be improved)
-  if (motor.conf1.useIlowpass == 1)
-  {
-    motor.state1.ia = motor.conf1.adc2A * (motor.state.sens1_lp - motor.state.sens1_calib);
-    motor.state1.ib = motor.conf1.adc2A * (motor.state.sens2_lp - motor.state.sens2_calib);
-  }
-  else {
-    motor.state1.ia = motor.conf1.adc2A * (motor.state.sens1 - motor.state.sens1_calib);
-    motor.state1.ib = motor.conf1.adc2A * (motor.state.sens2 - motor.state.sens2_calib);
-  }
+  motor.state1.ia = motor.conf1.adc2A * (motor.state.sens1 - motor.state.sens1_calib);
+  motor.state1.ib = motor.conf1.adc2A * (motor.state.sens2 - motor.state.sens2_calib);
   motor.state1.ic = -motor.state1.ia - motor.state1.ib;
-  if (motor.conf2.useIlowpass == 1)
-  {
-    motor.state2.ia = motor.conf2.adc2A * (motor.state.sens3_lp - motor.state.sens3_calib);
-    motor.state2.ib = motor.conf2.adc2A * (motor.state.sens4_lp - motor.state.sens4_calib);
-  }
-  else {
-    motor.state2.ia = motor.conf2.adc2A * (motor.state.sens3 - motor.state.sens3_calib);
-    motor.state2.ib = motor.conf2.adc2A * (motor.state.sens4 - motor.state.sens4_calib);
-  }
+  
+  motor.state2.ia = motor.conf2.adc2A * (motor.state.sens3 - motor.state.sens3_calib);
+  motor.state2.ib = motor.conf2.adc2A * (motor.state.sens4 - motor.state.sens4_calib);
   motor.state2.ic = -motor.state2.ia - motor.state2.ib;
 
   //
@@ -424,6 +380,7 @@ void adcetc1_isr() {
   //  else {
   //    //    digitalWrite( CHOPPERPIN , LOW);
   //  }
+  
   if ( motor.state.sensBus > 45 or motor.state.sensBus2 > 45 ) {
     error(41 , &motor.state1);
   }
@@ -435,12 +392,14 @@ void adcetc1_isr() {
     if (motor.state.n_senscalib < 1e4) {
       // Have to check this. Calibration not always ok.
       motor.state.n_senscalib++;
-      motor.state.sens1_calib += motor.state.sens1_lp;
-      motor.state.sens2_calib += motor.state.sens2_lp;
-      motor.state.sens3_calib += motor.state.sens3_lp;
-      motor.state.sens4_calib += motor.state.sens4_lp;
+      motor.state.sens1_calib += motor.state.sens1;
+      motor.state.sens2_calib += motor.state.sens2;
+      motor.state.sens3_calib += motor.state.sens3;
+      motor.state.sens4_calib += motor.state.sens4;
     }
     else if (motor.state.n_senscalib == 1e4) {
+      motor.state1.OutputOn = true;
+      motor.state2.OutputOn = true;
       motor.state.sens1_calib /= motor.state.n_senscalib;
       motor.state.sens2_calib /= motor.state.n_senscalib;
       motor.state.sens3_calib /= motor.state.n_senscalib;
@@ -488,21 +447,17 @@ void updateDisturbance() {
       motor.state.ss_phase = 0;
       motor.state.ss_tstart = 1e8;
       motor.conf1.ss_gain = 0;
-      motor.conf1.ss_offset = 0;
       motor.conf2.ss_gain = 0;
-      motor.conf2.ss_offset = 0;
     }
   }
   motor.state.ss_phase += motor.state.ss_f * 2 * M_PI * motor.conf.T;
   if ( motor.state.ss_phase >= 2 * M_PI) {
     motor.state.ss_phase -= 2 * M_PI; //Required, because high value floats are inaccurate
   }
-  float ss_offset_lp1 = lowpass_ss_offset->process( motor.conf1.ss_offset );
-  float ss_offset_lp2 = lowpass_ss_offset->process( motor.conf2.ss_offset );
   //motor.state.ss_out = ss_offset_lp + motor.conf1.ss_gain * arm_sin_f32( motor.state.ss_phase ); //sin() measured to be faster then sinf(); arm_sin_f32() is way faster!
   float sin_phase = sin( motor.state.ss_phase );
-  motor.state1.ss_out = ss_offset_lp1 + motor.conf1.ss_gain * sin_phase;
-  motor.state2.ss_out = ss_offset_lp2 + motor.conf2.ss_gain * sin_phase;
+  motor.state1.ss_out = motor.conf1.ss_gain * sin_phase;
+  motor.state2.ss_out = motor.conf2.ss_gain * sin_phase;
   motor.state1.dist = motor.state1.distval * 1 * (motor.state.noisebit - 0.5) + motor.state1.distoff + motor.state1.ss_out;
   motor.state2.dist = motor.state2.distval * 1 * (motor.state.noisebit - 0.5) + motor.state2.distoff + motor.state2.ss_out;
 }
@@ -525,8 +480,6 @@ void GenSetpoint( mot_conf_t* confX , mot_state_t* stateX , MotionProfile* SPpro
   stateX->REFstatus = SPprofileX->REFstatus;
   stateX->rmech = SPprofileX->stateCalculation( stateX->spGO );
 
-  //  stateX->offsetVel_lp = lowpassSP->process( stateX->offsetVel );
-
   utils_step_towards( &stateX->offsetVel_lp , stateX->offsetVel, 100.0 * motor.conf.T );
   stateX->offsetVelTot += stateX->offsetVel_lp * motor.conf.T;
   //When no offset velocity is running, always convert reference to nearest encoder count to avoid noise
@@ -539,6 +492,8 @@ void GenSetpoint( mot_conf_t* confX , mot_state_t* stateX , MotionProfile* SPpro
 
   stateX->acc = SPprofileX->aref;
   stateX->vel = SPprofileX->vref + stateX->offsetVel_lp;
+  stateX->jerk = SPprofileX->jref;
+
   stateX->we = stateX->vel * confX->N_pp;  //Electrical speed [rad/s], based on setpoint
 
 
@@ -717,7 +672,9 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     stateX->edeltarad = -confX->max_edeltarad;
     stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
   }
-  stateX->eradpers_lp = lowpass_eradpers->process( stateX->edeltarad / motor.conf.T );
+  
+  LOWPASS( stateX->eradpers_lp , stateX->edeltarad / motor.conf.T ,0.005 ); //50 Hz when running at 60 kHz
+  
   stateX->erpm = stateX->eradpers_lp * 60 / (2 * M_PI);
   stateX->thetaParkPrev = stateX->thetaPark;
   stateX->hfi_abs_pos += stateX->edeltarad;
@@ -736,8 +693,16 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
   }
 
   stateX->Iq_SP += stateX->muziek_gain * muziek[ (motor.state.curloop / (50 / (int)motor.conf.Ts)) % (sizeof(muziek) / 4) ];
-  stateX->Iq_SP += stateX->dist * stateX->Iq_distgain;
+  
+  if (stateX->runstream) {
+    stateX->curbuffer += 1;
+  }
+  if (stateX->curbuffer == (sizeof(stateX->streambuffer) / 4)) {
+    stateX->curbuffer = 0;
+  }
 
+  stateX->Iq_SP += stateX->buffergain * stateX->streambuffer[ stateX->curbuffer ];
+  stateX->Iq_SP += stateX->dist * stateX->Iq_distgain;
   stateX->Iq_SP += stateX->Iq_offset_SP;
 
   stateX->Id_SP = stateX->Id_offset_SP;
@@ -750,9 +715,6 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
   // Park transform
   stateX->Id_meas = stateX->co * stateX->Ialpha + stateX->si * stateX->Ibeta;
   stateX->Iq_meas = stateX->co * stateX->Ibeta  - stateX->si * stateX->Ialpha;
-
-  //  stateX->Id_meas_lp = lowpassId1->process( stateX->Id_meas );
-  //  stateX->Iq_meas_lp = lowpassIq1->process( stateX->Iq_meas );
 
   LOWPASS( stateX->Id_meas_lp, stateX->Id_meas, 0.005 ); //50 Hz when running at 60 kHz
   LOWPASS( stateX->Iq_meas_lp, stateX->Iq_meas, 0.005 );
@@ -879,12 +841,6 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     stateX->Vq += stateX->dist * stateX->Vq_distgain;
     stateX->Vq += stateX->hfi_V_act * stateX->compensation;
 
-    //    stateX->Vd = confX->Kp_id * stateX->Id_e;
-    //    stateX->vd_int_state += confX->Ki_id * motor.conf.T * stateX->Vd;;
-    //    stateX->Vd += stateX->vd_int_state;
-    //
-    //    LOWPASS( stateX->Vd , stateX->Vd, confX->lowpass_Vd_c);
-
     stateX->Kp_id_out = confX->Kp_id * stateX->Id_e;
     stateX->vd_int_state += confX->Ki_id * motor.conf.T * stateX->Kp_id_out;
     stateX->Ki_id_out = stateX->Kp_id_out + stateX->vd_int_state;
@@ -898,14 +854,15 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     stateX->Vd += stateX->hfi_V_act;
 
     // PMSM decoupling control and BEMF FF
-    stateX->VqFF = stateX->we * ( confX->Ld * stateX->Id_meas + confX->Lambda_m);
+    stateX->VqFF = stateX->we * ( confX->Ld * stateX->Id_SP + confX->Lambda_m);
+    stateX->VqFF += stateX->Iq_SP * stateX->R ;
 
     // q axis induction FFW based on setpoint FFW
-    stateX->VqFF += SPprofile1->jref * stateX->Jload * confX->Lq * confX->Kt_Nm_Apeak * stateX->OutputOn;
+    stateX->VqFF += stateX->jerk * stateX->Jload * confX->Lq / (1.5 * confX->N_pp * confX->Lambda_m) * stateX->OutputOn;
 
     stateX->Vq += stateX->VqFF;
 
-    stateX->VdFF = -stateX->we * confX->Lq * stateX->Iq_meas;
+    stateX->VdFF = -stateX->we * confX->Lq * stateX->Iq_SP;
     stateX->Vd += stateX->VdFF;
   }
 
@@ -1149,7 +1106,7 @@ void processCommands( mot_conf_t* confX ,  mot_state_t* stateX ) {
         confX->Command = NO_COMMAND;
         break;
       }
-      
+
   }
 }
 

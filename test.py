@@ -289,12 +289,25 @@ def setLowpass( axis, index, f0, damping ):
         ser.write( b'L' + struct.pack('I',  axis) + struct.pack('I',  index) + struct.pack('f',  f0) + struct.pack('f',  damping) )
 
 
-def readall( ):
+# def readall( ):
+#     a = []
+#     for signal in signames:
+#         a.append( getsig(signal))
+#     df = pd.DataFrame( a , index=signames ).T
+#     return df
+
+def readall( maxbytes = 8 ):
     a = []
-    for signal in signames:
-        a.append( getsig(signal))
-    df = pd.DataFrame( a , index=signames ).T
+    names = []
+    for i in range(len(signames)):
+        if (sigbytes[i] <= maxbytes):
+            names.append( signames[i] )
+            a.append( getsig(signames[i]))
+    df = pd.DataFrame( a , index=names ).T
     return df
+
+sigbytes[getsigid(1)]
+
 
 def discrete_notch( f0, debth_db, width):
     w0 = 2 * pi * f0 * Ts;
@@ -414,7 +427,7 @@ def CL( cont = 2):
         alpha_2 = 3
     elif cont == 1:
         BW = 10
-        alpha_i = 6
+        alpha_i = 0
         alpha_1 = 3
         alpha_2 = 3
         setLowpass( 1 , 0, 150, 0.6 )
@@ -443,13 +456,18 @@ def CL( cont = 2):
         alpha_i = 2.5
         alpha_1 = 2.5
         alpha_2 = 20
+    # elif cont == 6:
+    #   BW = 150
+    #   alpha_i = 0
+    #   alpha_1 = 1000
+    #   alpha_2 = 3
     else:
         BW = 50
         alpha_i = 6
         alpha_1 = 3
         alpha_2 = 10
         
-    J = 3.6e-5
+    J = 7.5e-5
     gain_at_BW = J * (BW*2*pi)**2
     
     if BW > 0:
@@ -480,9 +498,10 @@ def CL( cont = 2):
     setpar( 'motor.conf1.Command' , 2 ) #Reset error
     
     setpar( 'motor.conf1.Command' , 1 ) #Activate controller
-    
+    setpar('motor.state1.Jload' , J)
+
     # CONF2
-    J = 4e-5
+    #J = 3.25e-5
     gain_at_BW = J * (BW*2*pi)**2
     # alpha_i = 6
     # alpha_1 = 3
@@ -514,7 +533,8 @@ def CL( cont = 2):
     setpar( 'motor.conf2.lowpass_c_prep' , lowpass_c )
     
     setpar( 'motor.conf2.Command' , 1 ) #Activate controller     
-
+    setpar('motor.state2.Jload' , J)
+    
 def fftpsd( signal , name = '' , Ts=Ts ):
     L = len(signal)
     SIGNAL = np.fft.fft( signal , axis = 0) / L
@@ -538,34 +558,6 @@ def fftpsd( signal , name = '' , Ts=Ts ):
     return SIGNAL, f
 
 z = ct.TransferFunction( [1, 0] , [1] , float(Ts))
-
-
-# %%
-setTrace(['s.sens1' , 's.sens2' , 's.sens3' , 's.sens4' , 's.sensBus' , 's.sensBus2' ])
-df = trace(0.1)
-
-plt.figure(1)
-fftpsd( df['motor.state.sens1'])
-plt.figure(2)
-fftpsd( df['motor.state.sens2'])
-plt.figure(3)
-fftpsd( df['motor.state.sens3'])
-plt.figure(4)
-fftpsd( df['motor.state.sens4'])
-
-
-# %%
-setTrace([ 'motor.state.encoderPos1','motor.state.encoderPos2','motor.state.IndexFound1','motor.state.IndexFound2'])
-df = trace(1);
-
-df.plot()
-
-# %%
-getsig('motor.state.firsterror')
-
-# %%
-setpar('motor.conf1.clipMethod', 0)
-setpar('motor.conf1.clipMethod', 1)
 
 # %%
 setpar('motor.conf1.ridethewave', 1)
@@ -592,12 +584,11 @@ setpar('motor.conf2.commutationoffset', -offset2)
 Lq = 250e-6
 Ld = 210e-6
 R = 0.33
-setpar('motor.conf1.Lambda_m', 0.005405)
+setpar('motor.conf1.Lambda_m', 0.01245)
 setpar('motor.conf1.N_pp',  4)
 setpar('motor.conf1.Lq', Lq)
 setpar('motor.conf1.Ld', Ld)
 setpar('motor.state1.R', R)
-setpar('motor.conf1.useIlowpass', 0)
 
 f_bw = 1.5e3
 f_lp = f_bw*3
@@ -621,12 +612,11 @@ setpar('motor.conf1.enc_transmission' , 1)
 Lq = 250e-6
 Ld = 210e-6
 R = 0.33
-setpar('motor.conf2.Lambda_m', 0.005405)
+setpar('motor.conf2.Lambda_m', 0.01245) #0.005405)
 setpar('motor.conf2.N_pp',  4)
 setpar('motor.conf2.Lq', Lq)
 setpar('motor.conf2.Ld', Ld)
 setpar('motor.state2.R', R)
-setpar('motor.conf2.useIlowpass', 0)
 
 setpar('motor.conf2.Kp_iq', Lq * f_bw * 2 * pi)  # Current loop Kp
 setpar('motor.conf2.Ki_iq', R/Lq)  # Current loop Ki
@@ -647,6 +637,13 @@ setLowpass( 2 , 4, f_lp_2nd, f_lp_2nd_damp )
 setLowpass( 2 , 5, f_lp_2nd, f_lp_2nd_damp )
 
 
+# %%
+setTrace([ 'motor.state.encoderPos1','motor.state.encoderPos2','motor.state.IndexFound1','motor.state.IndexFound2'])
+df = trace(5);
+
+
+df.plot()
+
 # %% Trampa 160KV
 #Rotate by hand first
 Ld = 19e-6
@@ -657,7 +654,6 @@ setpar('motor.conf1.N_pp',  7)
 setpar('motor.conf1.Lq', Lq)
 setpar('motor.conf1.Ld', Ld)
 setpar('motor.state1.R', R)
-setpar('motor.conf.useIlowpass', 0)
 
 setpar('motor.conf1.commutationoffset', 0)
 
@@ -690,6 +686,20 @@ setpar('motor.conf1.commutationoffset', -offset)
 thetaPark = getsig('motor.state1.thetaPark')
 
 # %%
+setTrace(['s.sens1' , 's.sens2' , 's.sens3' , 's.sens4' , 's.sensBus' , 's.sensBus2' ])
+df = trace(0.1)
+
+plt.figure(1)
+fftpsd( df['motor.state.sens1'])
+plt.figure(2)
+fftpsd( df['motor.state.sens2'])
+plt.figure(3)
+fftpsd( df['motor.state.sens3'])
+plt.figure(4)
+fftpsd( df['motor.state.sens4'])
+
+
+# %%
 # Trampa 160KV
 f_bw = 2e3
 
@@ -711,7 +721,6 @@ setpar('motor.conf1.N_pp',  2)
 setpar('motor.conf1.Lq', Lq)
 setpar('motor.conf1.Ld', Ld)
 setpar('motor.state1.R', R)
-setpar('motor.conf.useIlowpass', 0)
 
 f_bw = 1e3
 
@@ -736,7 +745,6 @@ setpar('motor.conf1.N_pp',  N_pp)
 setpar('motor.conf1.Lq', Lq)
 setpar('motor.conf1.Ld', Ld)
 setpar('motor.state1.R', R)
-setpar('motor.conf.useIlowpass', 0)
 
 f_bw = 2e3
 
@@ -844,8 +852,8 @@ setpar('motor.state1.Iq_offset_SP', 1)
 df3 = trace(1)
 setpar('motor.state1.Iq_offset_SP', 0)
 # %%
-setpar('motor.state1.muziek_gain', 3)
-setpar('motor.state2.muziek_gain', 3)
+setpar('motor.state1.muziek_gain', 1)
+setpar('motor.state2.muziek_gain', 1)
 
 setpar('motor.state1.muziek_gain', 0)
 setpar('motor.state2.muziek_gain', 0)
@@ -1400,9 +1408,11 @@ getsig('s1.diq_compensation')
 setpar( 's1.diq_compensation_on' , 1)
 setpar( 's1.diq_compensation_on' , 0)
 # %%
-setpar('motor.state1.Iq_offset_SP',5)
-setpar('motor.state1.Iq_offset_SP', 0)
-
+setpar('s1.Iq_offset_SP',5)
+setpar('s1.Iq_offset_SP', 0)
+# %%
+setpar('s2.Iq_offset_SP',5)
+setpar('s2.Iq_offset_SP', 0)
 # %%
 signals = ['motor.state1.thetaPark' , 'motor.state1.thetaPark_enc' ]
 setTrace(signals)
@@ -1510,27 +1520,28 @@ setpar('motor.state1.R', R)
 #%%   Setpoint
 setpar('motor.state1.rdelay' , 0)
 
-setpar('motor.state1.Jload' , 3.25e-5)
-setpar('motor.state1.velFF' , 0.00006)
-setpar('motor.state2.Jload' , 3.25e-5)
-setpar('motor.state2.velFF' , 0.00006)
+setpar('motor.state1.Jload' , 7.2e-5)
+setpar('motor.state1.velFF' , 0.0002)
+setpar('motor.state2.Jload' , 7.2e-5)
+setpar('motor.state2.velFF' , 0.0002)
 # setpar('motor.state1.Jload' , 0)
 # setpar('motor.state1.velFF' , 0)
 # setpar('motor.state2.Jload' , 0)
 # setpar('motor.state2.velFF' , 0)
-
-# setTrace( ['motor.state.sensBus' , 'motor.state.sensBus2' , 'motor.state1.mechcontout' , 'motor.state1.T_FF_acc', 'motor.state1.T_FF_vel', 'motor.state.sensBus_lp','motor.state1.rmech' , 'motor.state1.vel', 'motor.state1.emech', 'motor.state2.emech', 'motor.state1.Vd', 'motor.state1.Vq' , 'motor.state1.Iq_SP', 'motor.state2.Iq_SP'])
-setTrace( ['motor.state1.rmech' , 'motor.state2.rmech' , 'motor.state1.ymech' , 'motor.state2.ymech' ,'motor.state1.vel' , 'motor.state2.vel', 'motor.state1.emech' , 'motor.state2.emech'])
-# setTrace( ['motor.state1.rmech' ,  'motor.state1.ymech' , 'motor.state1.emech' , 's1.Iq_SP' , 's1.Iq_meas' , 's1.Iq_e', 's1.Id_SP' , 's1.Id_meas' , 's1.Vd', 's1.Vq'])
+# 
+setTrace( ['motor.state.sensBus' , 'motor.state.sensBus2' , 'motor.state1.mechcontout' , 'motor.state1.T_FF_acc', 'motor.state1.T_FF_vel', 'motor.state.sensBus_lp','motor.state1.rmech' , 'motor.state1.vel', 'motor.state1.emech', 'motor.state2.emech', 'motor.state1.Vd', 'motor.state1.Vq' , 's1.VqFF' ,'motor.state1.Iq_SP', 'motor.state2.Iq_SP'])
+# setTrace( ['motor.state.sensBus' , 'motor.state.sensBus2' , 'motor.state2.mechcontout' , 's2.T_FF_acc', 's2.T_FF_vel', 'motor.state.sensBus_lp','s2.rmech' , 's2.vel','s2.ymech' , 's2.emech', 's2.Vd', 's2.Vq' , 's2.Iq_SP', 's2.Id_meas' , 's2.Iq_meas', 's1.Id_meas' , 's1.Iq_meas'])
+# setTrace( ['motor.state1.rmech' , 'motor.state2.rmech' , 'motor.state1.ymech' , 'motor.state2.ymech' ,'motor.state1.vel' , 'motor.state2.vel', 'motor.state1.emech' , 'motor.state2.emech'])
+# setTrace( ['motor.state1.rmech' ,  'motor.state1.ymech' , 'motor.state1.emech' , 's2.thetaPark' ,'s1.Iq_SP' , 's1.Iq_meas' , 's1.Iq_e', 's1.Id_meas' , 's2.Iq_SP' , 's2.Iq_meas' , 's2.Iq_e', 's2.Id_meas' ,  's1.Vd', 's1.Vq',   's.sens1', 's.sens2','s.sens3', 's.sens4', 's2.ia', 's2.ib'])
 # setTrace( ['s1.rmech' ,  's1.ymech' , 's1.emech' ])
 # setTrace( ['s2.rmech' ,  's2.ymech' , 's2.emech' ])
 
 p = 360
-prepSP( p/360*2*pi , 250 , 6000 ,500000 , 1)
-prepSP( p/360*2*pi , 250 , 6000 ,500000 , 2)
+prepSP( p/360*2*pi , 150 , 8000 ,1500000 , 1)
+prepSP( p/360*2*pi , 150 , 8000 ,1500000 , 2)
 
 setpar('motor.conf2.Command' , 3)
-df = trace(0.1)
+df = trace(0.4)
 while (getsig('motor.state2.spNgo') > 0 or getsig('motor.state2.REFstatus') > 0 ):
     bla = 1;
 setpar('motor.conf2.Command' , 4)
@@ -1543,6 +1554,12 @@ df.plot(ax=ax) # draws to fig1 now
 # plt.figure(1)
 # (df['motor.state1.rmech']/2/pi*20000).plot()
 # (df['motor.state2.rmech']/2/pi*20000).plot()
+
+# plt.figure()
+# df['motor.state1.Vq'].plot()
+# df['motor.state1.VqFF'].plot()
+# (df['motor.state1.Iq_SP']*R).plot()
+
 
 #%%  
 prepSP( 360/360*2*pi , 250 , 6000 ,2500000)
@@ -1816,17 +1833,30 @@ bode( Pq * C / (1 + Pq * C ) , f )
 # C3 = 1
 # C4 = 1
 
-BW = 250
-J = 3.6e-5
+# BW = 250
+# J = 7.5e-5
+# gain_at_BW = J * (BW*2*pi)**2
+# alpha_i = 2.5
+# alpha_1 = 2.5
+# alpha_2 = 20
+# C1 = discrete_lowpass( 4000, 0.6 )
+# C2 = 1
+# # C2 = #discrete_notch( 590, -20, 0.1) 
+# C3 = 1
+# C4 = 1
+
+BW = 150
+J = 7.5e-5
 gain_at_BW = J * (BW*2*pi)**2
-alpha_i = 2.5
-alpha_1 = 2.5
-alpha_2 = 20
+alpha_i = 0
+alpha_1 = 1000
+alpha_2 = 3
 C1 = discrete_lowpass( 4000, 0.6 )
 C2 = 1
 # C2 = #discrete_notch( 590, -20, 0.1) 
 C3 = 1
 C4 = 1
+
 
 if BW > 0:
     if alpha_i > 0:
@@ -1867,6 +1897,23 @@ pos([0,180])
 vel([100,-100])
 #%% 
 vel(0)
+#%% 
+s1 = getsig('s.sens1_calib' )
+s2 = getsig('s.sens2_calib' )
+s3 = getsig('s.sens3_calib' )
+s4 = getsig('s.sens4_calib' )
+
+#%% 
+
+
+# getsig('s.sens1_calib')
+# getsig('s.sens1_calib')
+# getsig('s.sens1_calib')getsig('s.sens1_calib')
+setpar('s.sens1_calib'  , 1.65 )
+setpar('s.sens2_calib'  , 1.65 )
+setpar('s.sens3_calib'  , 1.65 )
+setpar('s.sens4_calib'  , 1.65 )
+
 
 
 #%% 
@@ -1874,7 +1921,7 @@ pos_wait([180,0])
 #%% 
 
 v = 150
-a = 7000
+a = 5000
 pos_wait([0,180] , vel=v , acc = a)
 pos_wait([180,0], vel=v , acc = a)
 pos_wait([-90,90], vel=v , acc = a)

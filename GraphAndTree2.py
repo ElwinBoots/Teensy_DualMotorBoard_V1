@@ -180,8 +180,8 @@ class Thread(pg.QtCore.QThread):
 
 
 
-
-df = readall()
+maxbytes = 8
+df = readall( maxbytes )
 
 # params = list()
 # for i in np.argsort( signames):
@@ -198,17 +198,18 @@ df = readall()
        
 params = list()
 for i in np.argsort( signames):
-    signames[i].split('.')
-    if sigtypes[i] == 'f':
-        sertype = 'float'
-    if sigtypes[i] == 'b':
-        sertype = 'bool'
-    if sigtypes[i] == 'i':
-        sertype = 'int'
-    if sigtypes[i] == 'I':
-        sertype = 'int'
-    if not (type(df[signames[i]][0]) == np.ndarray):
-        params.append( {'name' : signames[i]  , 'type':  sertype , 'value': df[signames[i]][0] } )
+    if sigbytes[i] <= maxbytes: 
+        signames[i].split('.')
+        if sigtypes[i] == 'f':
+            sertype = 'float'
+        if sigtypes[i] == 'b':
+            sertype = 'bool'
+        if sigtypes[i] == 'i':
+            sertype = 'int'
+        if sigtypes[i] == 'I':
+            sertype = 'int'
+        if not (type(df[signames[i]][0]) == np.ndarray):
+            params.append( {'name' : signames[i]  , 'type':  sertype , 'value': df[signames[i]][0] } )
 
 
 # params = [
