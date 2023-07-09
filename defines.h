@@ -13,7 +13,7 @@
 #define SQRT_TWO_THREE  0.81649658092
 #define SQRT3_by_2      0.86602540378
 
-#define F_PWM 30e3
+#define F_PWM 48e3
 #define CHOPPERPIN 33 //Digital output for chopper resistor
 #define DEBUGPIN 32
 #define ENGATE  34
@@ -64,7 +64,6 @@ typedef struct mot_conf_t {
   unsigned int Command;
 
   //Motor parameters
-  float Kt_Nm_Apeak;
   float Ld; //[Henry] Ld induction: phase-zero
   float Lq; //[Henry] Lq induction: phase-zero
   float Lambda_m; //[Weber] Note: on the fly changes of Kt do not adjust this value!
@@ -146,6 +145,7 @@ typedef struct mot_state_t {
   double offsetVelTot;
   float offsetVel;
   float offsetVel_lp;
+  float offsetVel_lp_prev;
   float jerk;
   float acc;
   float vel;
@@ -188,7 +188,7 @@ typedef struct mot_state_t {
   float rdelay; //Delays the reference relative to the feedforward signal. e.g. rdelay of 0.5 gives 0.5 Ts delay.
   float emech;
   double ymech;
-  float rmechoffset;
+  double rmechoffset;
 
   float we;
   float VqFF;

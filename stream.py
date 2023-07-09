@@ -1,40 +1,43 @@
 Fplayback = round(1/Ts)
 N_samples_per_write = 100
 bufsize = 10000
-gain = 3
+gain = 1
+
+import scipy
 
 #%%
-import scipy
 (Fs , data) = scipy.io.wavfile.read("AC⧸DC - Thunderstruck (Official Video).wav")
 
 stream = data[200*Fs:300*Fs]
 stream = scipy.signal.resample(stream , int(len(stream)/Fs*Fplayback) ) 
-stream = stream / np.max(np.abs(stream))
 #%%
-import scipy
 (Fs , data) = scipy.io.wavfile.read("#Stereo： Left and Right Stereo Sound Test.wav")
 
 stream = data[6*Fs:]
 stream = scipy.signal.resample(stream , int(len(stream)/Fs*Fplayback) ) 
-stream = stream / np.max(np.abs(stream))
-
 #%%
-import scipy
 (Fs , data) = scipy.io.wavfile.read("8D Audio Bass Test !!.wav")
 
 stream = data
 stream = scipy.signal.resample(stream , int(len(stream)/Fs*Fplayback) ) 
-stream = stream / np.max(np.abs(stream))
 #%%
-import scipy
 (Fs , data) = scipy.io.wavfile.read("Martin Garrix - Animals (Official Video).wav")
 
 stream = data[77*Fs:300*Fs]
 stream = scipy.signal.resample(stream , int(len(stream)/Fs*Fplayback) ) 
-stream = stream / np.max(np.abs(stream))
+#%%
+(Fs , data) = scipy.io.wavfile.read("Jedi Mind Tricks Presents： Army Of The Pharaohs - ＂Dump The Clip＂ [Official Audio].wav")
 
+stream = data[8*Fs:]
+stream = scipy.signal.resample(stream , int(len(stream)/Fs*Fplayback) ) 
+#%%
+(Fs , data) = scipy.io.wavfile.read("Eminem, Dr. Dre - Forgot About Dre (Explicit) (Official Music Video) ft. Hittman.wav")
+
+stream = data
+stream = scipy.signal.resample(stream , int(len(stream)/Fs*Fplayback) ) 
 
 #%%
+stream = stream / np.max(np.abs(stream))
 L = len(stream)
 
 setpar('s1.runstream' , 0)
@@ -67,7 +70,7 @@ try:
         setparpart( 's1.streambuffer' ,  stream[ i*N_samples_per_write + bufsize: (i+1)*N_samples_per_write + bufsize , 1] , startlocation = startloc )
         setparpart( 's2.streambuffer' ,  stream[ i*N_samples_per_write + bufsize: (i+1)*N_samples_per_write + bufsize , 0] , startlocation = startloc )
         print((i+1)*N_samples_per_write + bufsize)
-except KeyboardInterrupt: #I think this might be bad, it might kill the setpar or getsig command mid write
+except KeyboardInterrupt:
     time.sleep(0.1)   
     ser.flushInput()  
     print('Canceled')

@@ -403,6 +403,42 @@ def rel( rel = 0 , motor = 0 ):
             setpar('motor.state2.spNgo', 1)
         
 
+def CL_cur( f_bw = 2e3):
+    f_lp = f_bw*4
+    f_lp_2nd = f_bw*8
+    f_lp_2nd_damp = 0.5
+    
+    setpar('motor.conf1.Kp_iq', Lq * f_bw * 2 * pi)  # Current loop Kp
+    setpar('motor.conf1.Ki_iq', R/Lq)  # Current loop Ki
+    setpar('motor.conf1.Kp_id', Ld * f_bw * 2 * pi)  # Current loop Kp
+    setpar('motor.conf1.Ki_id', R/Ld)  # Current loop Ki
+    lowpass_c = 1-np.exp(-f_lp*2*pi*Ts)
+    setpar( 'motor.conf1.lowpass_Vd_c' , lowpass_c )
+    setpar( 'motor.conf1.lowpass_Vq_c' , lowpass_c )
+    
+    setpar('motor.conf1.I_max', 15)
+    setpar('motor.conf1.maxDutyCycle', 0.99)
+    
+    setpar('motor.conf1.enc_transmission' , 1)
+    
+    setpar('motor.conf2.Kp_iq', Lq * f_bw * 2 * pi)  # Current loop Kp
+    setpar('motor.conf2.Ki_iq', R/Lq)  # Current loop Ki
+    setpar('motor.conf2.Kp_id', Ld * f_bw * 2 * pi)  # Current loop Kp
+    setpar('motor.conf2.Ki_id', R/Ld)  # Current loop Ki
+    lowpass_c = 1-np.exp(-f_lp*2*pi*Ts)
+    setpar( 'motor.conf2.lowpass_Vd_c' , lowpass_c )
+    setpar( 'motor.conf2.lowpass_Vq_c' , lowpass_c )
+    
+    setpar('motor.conf2.I_max', 15)
+    setpar('motor.conf2.maxDutyCycle', 0.99)
+    
+    setpar('motor.conf2.enc_transmission' , 1)
+    
+    setLowpass( 1 , 4, f_lp_2nd, f_lp_2nd_damp )
+    setLowpass( 1 , 5, f_lp_2nd, f_lp_2nd_damp )
+    setLowpass( 2 , 4, f_lp_2nd, f_lp_2nd_damp )
+    setLowpass( 2 , 5, f_lp_2nd, f_lp_2nd_damp )
+
 def CL( cont = 2):
     setpar('c1.maxerror',0.5)
     setpar('c2.maxerror',0.5)
@@ -456,11 +492,14 @@ def CL( cont = 2):
         alpha_i = 2.5
         alpha_1 = 2.5
         alpha_2 = 20
-    # elif cont == 6:
-    #   BW = 150
-    #   alpha_i = 0
-    #   alpha_1 = 1000
-    #   alpha_2 = 3
+        
+    elif cont == 6:
+        BW = 250
+        alpha_i = 2.5
+        alpha_1 = 2.5
+        alpha_2 = 7
+        setLowpass( 1 , 1, 8000, 0.4 )
+        setLowpass( 2 , 1, 8000, 0.4 )
     else:
         BW = 50
         alpha_i = 6
@@ -590,24 +629,6 @@ setpar('motor.conf1.Lq', Lq)
 setpar('motor.conf1.Ld', Ld)
 setpar('motor.state1.R', R)
 
-f_bw = 1.5e3
-f_lp = f_bw*3
-f_lp_2nd = f_bw*6
-f_lp_2nd_damp = 0.5
-
-setpar('motor.conf1.Kp_iq', Lq * f_bw * 2 * pi)  # Current loop Kp
-setpar('motor.conf1.Ki_iq', R/Lq)  # Current loop Ki
-setpar('motor.conf1.Kp_id', Ld * f_bw * 2 * pi)  # Current loop Kp
-setpar('motor.conf1.Ki_id', R/Ld)  # Current loop Ki
-lowpass_c = 1-np.exp(-f_lp*2*pi*Ts)
-setpar( 'motor.conf1.lowpass_Vd_c' , lowpass_c )
-setpar( 'motor.conf1.lowpass_Vq_c' , lowpass_c )
-
-setpar('motor.conf1.I_max', 15)
-setpar('motor.conf1.maxDutyCycle', 0.99)
-
-setpar('motor.conf1.enc_transmission' , 1)
-
 # Servo motor Wittenstein cyber MSSI 055G  CONF2
 Lq = 250e-6
 Ld = 210e-6
@@ -618,28 +639,12 @@ setpar('motor.conf2.Lq', Lq)
 setpar('motor.conf2.Ld', Ld)
 setpar('motor.state2.R', R)
 
-setpar('motor.conf2.Kp_iq', Lq * f_bw * 2 * pi)  # Current loop Kp
-setpar('motor.conf2.Ki_iq', R/Lq)  # Current loop Ki
-setpar('motor.conf2.Kp_id', Ld * f_bw * 2 * pi)  # Current loop Kp
-setpar('motor.conf2.Ki_id', R/Ld)  # Current loop Ki
-lowpass_c = 1-np.exp(-f_lp*2*pi*Ts)
-setpar( 'motor.conf2.lowpass_Vd_c' , lowpass_c )
-setpar( 'motor.conf2.lowpass_Vq_c' , lowpass_c )
-
-setpar('motor.conf2.I_max', 15)
-setpar('motor.conf2.maxDutyCycle', 0.99)
-
-setpar('motor.conf2.enc_transmission' , 1)
-
-setLowpass( 1 , 4, f_lp_2nd, f_lp_2nd_damp )
-setLowpass( 1 , 5, f_lp_2nd, f_lp_2nd_damp )
-setLowpass( 2 , 4, f_lp_2nd, f_lp_2nd_damp )
-setLowpass( 2 , 5, f_lp_2nd, f_lp_2nd_damp )
+CL_cur( 2e3 )
 
 
 # %%
 setTrace([ 'motor.state.encoderPos1','motor.state.encoderPos2','motor.state.IndexFound1','motor.state.IndexFound2'])
-df = trace(5);
+df = trace(1);
 
 
 df.plot()
@@ -1011,8 +1016,8 @@ bode( (1 / Sq - 1)/Pq , f, 'Controller Q')
 
 
 plt.figure(3)
-nyquist( 1 / Sq - 1 , f, 'Open loop D')
-nyquist( 1 / Sd - 1 , f, 'Open loop Q')
+nyquist( 1 / Sd - 1 , f, 'Open loop D')
+nyquist( 1 / Sq - 1 , f, 'Open loop Q')
 
 plt.figure(4)
 plt.plot(
@@ -1550,9 +1555,8 @@ setpar('motor.conf2.Command' , 4)
 plt.figure();ax = plt.gca()
 df.plot(ax=ax) # draws to fig1 now
 
-# df.plot()
-# plt.figure(1)
-# (df['motor.state1.rmech']/2/pi*20000).plot()
+plt.figure(2)
+(df['motor.state1.emech']/2/pi*20000).plot()
 # (df['motor.state2.rmech']/2/pi*20000).plot()
 
 # plt.figure()
@@ -1833,29 +1837,29 @@ bode( Pq * C / (1 + Pq * C ) , f )
 # C3 = 1
 # C4 = 1
 
-# BW = 250
+BW = 250
+J = 7.5e-5
+gain_at_BW = J * (BW*2*pi)**2
+alpha_i = 2.5
+alpha_1 = 2.5
+alpha_2 = 7
+C1 = discrete_lowpass( 4000, 0.4 )
+C2 = discrete_lowpass( 8000, 0.4 )
+# C2 = #discrete_notch( 590, -20, 0.1) 
+C3 = 1
+C4 = 1
+
+# BW = 150
 # J = 7.5e-5
 # gain_at_BW = J * (BW*2*pi)**2
-# alpha_i = 2.5
-# alpha_1 = 2.5
-# alpha_2 = 20
+# alpha_i = 0
+# alpha_1 = 1000
+# alpha_2 = 3
 # C1 = discrete_lowpass( 4000, 0.6 )
 # C2 = 1
 # # C2 = #discrete_notch( 590, -20, 0.1) 
 # C3 = 1
 # C4 = 1
-
-BW = 150
-J = 7.5e-5
-gain_at_BW = J * (BW*2*pi)**2
-alpha_i = 0
-alpha_1 = 1000
-alpha_2 = 3
-C1 = discrete_lowpass( 4000, 0.6 )
-C2 = 1
-# C2 = #discrete_notch( 590, -20, 0.1) 
-C3 = 1
-C4 = 1
 
 
 if BW > 0:

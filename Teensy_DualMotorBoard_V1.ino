@@ -3,8 +3,6 @@
 #include <SPI.h>
 
 #include "Biquad.h"
-
-//#include "ControlTools.h"
 #include "muziek.c"
 #include "QuadEncoder.h"
 #include "MotionProfile.h"
@@ -13,13 +11,8 @@
 
 Biquad *Biquads1[6];
 Biquad *Biquads2[6];
-
-Biquad *hfi_lowpass = new Biquad( bq_type_lowpass , 2000 , 0.707, 2 * F_PWM);
-
-//Initialize setpoint generators
 MotionProfile *SPprofile1 = new MotionProfile( 0 , 0.0005 , 0.0193 , 0 , 3.14 , 157 , 7853 , 15632147 , 1 / (2 * F_PWM) );
 MotionProfile *SPprofile2 = new MotionProfile( 0 , 0.0005 , 0.0193 , 0 , 3.14 , 157 , 7853 , 15632147 , 1 / (2 * F_PWM) );
-
 QuadEncoder Encoder1(1, 0, 1 , 0 , 3);   //Encoder 1 on pins 0 and 1, index on pin 3
 QuadEncoder Encoder2(2, 30, 31 , 0 , 33);//Encoder 2 on pins 30 and 31, index on pin 33
 
@@ -58,7 +51,6 @@ void initmotor( mot_conf_t* m , mot_state_t* state ) {
   m->Ld = 10e-3; //[Henry] Ld induction: phase-zero
   m->Lq = 10e-3; //[Henry] Lq induction: phase-zero
   m->Lambda_m = 0.01; //[Weber] Note: on the fly changes of Kt do not adjust this value!
-  m->Kt_Nm_Apeak = 1.5 * m->N_pp * m->Lambda_m ;
   m->Kp = 0;
 }
 
@@ -480,6 +472,7 @@ void GenSetpoint( mot_conf_t* confX , mot_state_t* stateX , MotionProfile* SPpro
   stateX->REFstatus = SPprofileX->REFstatus;
   stateX->rmech = SPprofileX->stateCalculation( stateX->spGO );
 
+  stateX->offsetVel_lp_prev = stateX->offsetVel_lp;
   utils_step_towards( &stateX->offsetVel_lp , stateX->offsetVel, 100.0 * motor.conf.T );
   stateX->offsetVelTot += stateX->offsetVel_lp * motor.conf.T;
   //When no offset velocity is running, always convert reference to nearest encoder count to avoid noise
@@ -490,7 +483,7 @@ void GenSetpoint( mot_conf_t* confX , mot_state_t* stateX , MotionProfile* SPpro
 
   stateX->rmech += stateX->rmechoffset;
 
-  stateX->acc = SPprofileX->aref;
+  stateX->acc = SPprofileX->aref + (stateX->offsetVel_lp - stateX->offsetVel_lp_prev) * F_PWM * 2;
   stateX->vel = SPprofileX->vref + stateX->offsetVel_lp;
   stateX->jerk = SPprofileX->jref;
 
@@ -764,9 +757,12 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
         stateX->hfi_curangleest =  (stateX->Iq_meas - stateX->Iq_SP) / (-stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq - 1 / confX->Ld ) );
       }
     }
-    stateX->hfi_error = -stateX->hfi_curangleest; //Negative feedback
     if (stateX->hfi_use_lowpass) {
-      stateX->hfi_error = hfi_lowpass->process( stateX->hfi_error );
+      LOWPASS( stateX->hfi_error , -stateX->hfi_curangleest , 0.19); //Negative feedback and lowpass (0.19 gives 2000 Hz at 60 kHz sampling: c = 1 - exp(-2000*2*pi*1/60000))
+    }
+    else
+    {
+        stateX->hfi_error = -stateX->hfi_curangleest; //Negative feedback
     }
     stateX->hfi_dir_int += motor.conf.T * stateX->hfi_error * stateX->hfi_gain_int2; //This the the double integrator
 
@@ -1053,6 +1049,7 @@ void processCommands( mot_conf_t* confX ,  mot_state_t* stateX ) {
       {
         if (confX->Kp == 0) {
           stateX->rmechoffset -= stateX->emech;
+          stateX->rmechoffset = int((stateX->rmechoffset / confX->enc2rad)) * confX->enc2rad;
           stateX->Kp_out_prev = 0;
           stateX->Ki_sum = 0;
           stateX->lp_out = 0;

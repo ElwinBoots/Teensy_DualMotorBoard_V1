@@ -253,20 +253,21 @@ def _enable_apply( param, changes):
 def update_tree():
     if tracerunning:
         thread.stopdata()
-    df = readall()
+    df = readall( maxbytes )
     if tracerunning:
         thread.resume()
     params = list()
     for i in range(len(signames)):
-        if sigtypes[i] == 'f':
-            sertype = 'float'
-        if sigtypes[i] == 'b':
-            sertype = 'bool'
-        if sigtypes[i] == 'i':
-            sertype = 'int'
-        if sigtypes[i] == 'I':
-            sertype = 'int'
-        params.append( {'name' : signames[i]  , 'type':  sertype , 'value': df[signames[i]][0] } )    
+        if sigbytes[i] <= maxbytes: 
+            if sigtypes[i] == 'f':
+                sertype = 'float'
+            if sigtypes[i] == 'b':
+                sertype = 'bool'
+            if sigtypes[i] == 'i':
+                sertype = 'int'
+            if sigtypes[i] == 'I':
+                sertype = 'int'
+            params.append( {'name' : signames[i]  , 'type':  sertype , 'value': df[signames[i]][0] } )    
     # _params = Parameter.create(name='params', type='group',      children=params)
     # _params.setValue( params )
     _params.sigTreeStateChanged.disconnect()
@@ -314,7 +315,19 @@ def start_stop_trace():
         trace_btn.setText('Stop trace')
     return
 
-
+def filter_tree( text ):
+    text = text.lower()
+    _params.sigTreeStateChanged.disconnect()
+    t.hide()
+    for param in _params:
+        if( text in param.name().lower() ):
+            if param.opts['visible'] == 0:
+                param.show()
+        else:
+            if param.opts['visible'] == 1:
+                param.hide()
+    _params.sigTreeStateChanged.connect(_enable_apply)    
+    t.show()
 
 
 _params.sigTreeStateChanged.connect(_enable_apply)
@@ -323,8 +336,14 @@ t = ParameterTree()
 t.setParameters(_params, showTop=False)
 
 
+textbox = QLineEdit()
+textbox.textChanged.connect(filter_tree)
 
 layout2 = QVBoxLayout()
+
+
+layout2.addWidget(textbox)
+
 layout2.addWidget(t)
 
 layout3 = QHBoxLayout()
@@ -348,6 +367,7 @@ layout2.addLayout( layout3)
 layouttot = QHBoxLayout()
 
 t.setFixedWidth(350)
+textbox.setFixedWidth(350)
 layouttot.addLayout( layout2)
 layouttot.addLayout( layout)
 
@@ -369,10 +389,10 @@ thread.startdata( [ 'motor.state1.Iq_SP', 'motor.state2.Iq_SP', 'motor.state1.Iq
 
 
 #%%
+text = 'kd'
 
 
-
-
+#%%
 from _buildParamTypes import makeAllParamTypes
 from PyQt5.QtWidgets import QApplication, QGridLayout, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLineEdit, QSlider
 
