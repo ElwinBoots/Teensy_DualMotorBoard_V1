@@ -9,7 +9,7 @@ from pyqtgraph.widgets.PlotWidget import PlotWidget
 pg.setConfigOption('background', 'k')
 pg.setConfigOption('foreground', 'w')
 
-maxdata = 2000
+maxdata = 2001
 Tsample = 0.01
 
 class CustomViewBox(pg.ViewBox):
@@ -21,12 +21,12 @@ class CustomViewBox(pg.ViewBox):
     ## reimplement right-click to zoom out
     def mouseClickEvent(self, ev):
         if ev.button() == QtCore.Qt.MouseButton.RightButton:
-            self.setXRange(0,maxdata)
+            self.setXRange(0,maxdata*Tsample)
             self.enableAutoRange( pg.ViewBox.YAxis )
 
     ## reimplement right-click to zoom out
     def mouseDoubleClickEvent(self, ev):
-        self.setXRange(0,maxdata)
+        self.setXRange(0,maxdata*Tsample)
         self.enableAutoRange( pg.ViewBox.YAxis )
     
     ## reimplement mouseDragEvent to disable continuous axis zoom
@@ -59,18 +59,15 @@ plot1.showGrid(x = True, y = True, alpha = 0.3)
 plot2.showGrid(x = True, y = True, alpha = 0.3)                                        
 plot3.showGrid(x = True, y = True, alpha = 0.3)                                        
 
-plot1.setXRange(0,maxdata)
+plot1.setXRange(0,maxdata*Tsample)
 plot2.setXLink(plot1)
 plot3.setXLink(plot1)
-
-
-
 plot1.plotItem.getViewBox().setMouseMode(pg.ViewBox.RectMode)
 plot2.plotItem.getViewBox().setMouseMode(pg.ViewBox.RectMode)
 plot3.plotItem.getViewBox().setMouseMode(pg.ViewBox.RectMode)
-plot1.setXRange(0,maxdata)
-plot2.setXRange(0,maxdata)
-plot3.setXRange(0,maxdata)
+# plot1.setXRange(0,maxdata)
+# plot2.setXRange(0,maxdata)
+# plot3.setXRange(0,maxdata)
 
 layout.addWidget(plot1)
 layout.addWidget(plot2)
@@ -96,6 +93,14 @@ curve3a = plot3.plot(pen=pg.mkPen(color=col[0], width=width))
 curve3b = plot3.plot(pen=pg.mkPen(color=col[1], width=width))
 curve3c = plot3.plot(pen=pg.mkPen(color=col[2], width=width))
 
+
+curve1a.setData ( x = np.linspace(0, (maxdata-1) * Tsample , maxdata) )
+curve1b.setData ( x = np.linspace(0, (maxdata-1) * Tsample , maxdata) )
+curve1c.setData ( x = np.linspace(0, (maxdata-1) * Tsample , maxdata) )
+# curve1a.setData ( x = np.linspace(0, (maxdata-1) * Tsample , maxdata) )
+# curve1a.setData ( x = np.linspace(0, (maxdata-1) * Tsample , maxdata) )
+
+
 tracerunning = True
 
 # win.showFullScreen()
@@ -104,15 +109,15 @@ tracerunning = True
 import threading
 from collections import deque
 
-y1a = deque()
-y1b = deque()
-y1c = deque()
-y1d = deque()
-y2a = deque()
-y2b = deque()
-y3a = deque()
-y3b = deque()
-y3c = deque()
+y1a = deque(maxlen=maxdata)
+y1b = deque(maxlen=maxdata)
+y1c = deque(maxlen=maxdata)
+y1d = deque(maxlen=maxdata)
+y2a = deque(maxlen=maxdata)
+y2b = deque(maxlen=maxdata)
+y3a = deque(maxlen=maxdata)
+y3b = deque(maxlen=maxdata)
+y3c = deque(maxlen=maxdata)
 
 def update(data1 , data2 , data3, data4 , data5 , data6 , data7 , data8 , data9 ):
     y1a.extend( [data1] )
@@ -124,25 +129,15 @@ def update(data1 , data2 , data3, data4 , data5 , data6 , data7 , data8 , data9 
     y3a.extend( [data7] )
     y3b.extend( [data8] )
     y3c.extend( [data9] )
-    while len(y1a) > maxdata:
-        y1a.popleft() #remove oldest
-        y1b.popleft() #remove oldest
-        y1c.popleft() #remove oldest
-        y1d.popleft() #remove oldest
-        y2a.popleft() #remove oldest
-        y2b.popleft() #remove oldest
-        y3a.popleft() #remove oldest
-        y3b.popleft() #remove oldest
-        y3c.popleft() #remove oldest
-    curve1a.setData( y=y1a)
-    curve1b.setData( y=y1b)
-    curve1c.setData( y=y1c)
-    curve1d.setData( y=y1d)
-    curve2a.setData( y=y2a)
-    curve2b.setData( y=y2b)
-    curve3a.setData( y=y3a)
-    curve3b.setData( y=y3b)
-    curve3c.setData( y=y3c)
+    curve1a.setData( x = np.linspace(0, (len(y1a)-1) * Tsample , len(y1a)) , y=y1a)
+    curve1b.setData( x = np.linspace(0, (len(y1b)-1) * Tsample , len(y1b)) , y=y1b)
+    curve1c.setData( x = np.linspace(0, (len(y1c)-1) * Tsample , len(y1c)) , y=y1c)
+    curve1d.setData( x = np.linspace(0, (len(y1d)-1) * Tsample , len(y1d)) , y=y1d)
+    curve2a.setData( x = np.linspace(0, (len(y2a)-1) * Tsample , len(y2a)) ,y=y2a)
+    curve2b.setData( x = np.linspace(0, (len(y2b)-1) * Tsample , len(y2b)) ,y=y2b)
+    curve3a.setData( x = np.linspace(0, (len(y3a)-1) * Tsample , len(y3a)) ,y=y3a)
+    curve3b.setData( x = np.linspace(0, (len(y3b)-1) * Tsample , len(y3b)) ,y=y3b)
+    curve3c.setData( x = np.linspace(0, (len(y3c)-1) * Tsample , len(y3c)) ,y=y3c)
     return
 
 class Thread(pg.QtCore.QThread):
@@ -384,7 +379,7 @@ thread.start()
 
 
 # thread.startdata( [ 'motor.state1.Id_SP', 'motor.state1.Iq_SP', 'motor.state1.Id_meas', 'motor.state1.Iq_meas', 'motor.state1.encoderPos1', 'motor.state1.encoderPos2','motor.state1.Vd','motor.state1.Vq','motor.state1.maxVolt'] )
-thread.startdata( [ 'motor.state1.Iq_SP', 'motor.state2.Iq_SP', 'motor.state1.Iq_meas', 'motor.state2.Iq_meas', 'motor.state1.thetaPark_enc', 'motor.state1.thetaPark_obs','motor.state1.Vd','motor.state1.Vq','motor.state1.maxVolt'] )
+thread.startdata( [ 'motor.state1.Iq_SP', 'motor.state2.Iq_SP', 'motor.state1.Iq_meas', 'motor.state2.Iq_meas', 'motor.state1.rmech', 'motor.state1.ymech','motor.state1.Vd','motor.state1.Vq','motor.state1.maxVolt'] )
 
 
 

@@ -52,8 +52,8 @@ typedef struct trace_t{ \n\
   uint8_t  all_types[500]; \n\
   uint8_t* all_pointers[500]; \n\
   uint32_t  all_lengths[500]; \n\
-  uint8_t*  pointers[30]; \n\
-  uint32_t  lengths[30]; \n\
+  uint8_t*  pointers[50]; \n\
+  uint32_t  lengths[50]; \n\
   uint32_t n_to_send;\n\
   bool send_all;\n\
 } trace_t; \n\

@@ -19,7 +19,7 @@ try:
     print('')
 except:
     print('')
-ser = serial.Serial('COM4', timeout=0.1)  # open serial port
+ser = serial.Serial('COM6', timeout=0.1)  # open serial port
 
 ser.flush()
 # Get signal names, lengths and types
@@ -599,6 +599,7 @@ def fftpsd( signal , name = '' , Ts=Ts ):
 z = ct.TransferFunction( [1, 0] , [1] , float(Ts))
 
 # %%
+CL_cur( 0 )
 setpar('motor.conf1.ridethewave', 1)
 setpar('motor.conf2.ridethewave', 1)
 time.sleep(0.5)
@@ -639,11 +640,11 @@ setpar('motor.conf2.Lq', Lq)
 setpar('motor.conf2.Ld', Ld)
 setpar('motor.state2.R', R)
 
-CL_cur( 2e3 )
+CL_cur( 1.5e3 )
 
 
 # %%
-setTrace([ 'motor.state.encoderPos1','motor.state.encoderPos2','motor.state.IndexFound1','motor.state.IndexFound2'])
+setTrace([ 'motor.state.encoderPos1','motor.state.encoderPos2','motor.state.IndexFound1','motor.state.IndexFound2','motor.state1.emech'])
 df = trace(1);
 
 
@@ -662,7 +663,7 @@ setpar('motor.state1.R', R)
 
 setpar('motor.conf1.commutationoffset', 0)
 
-setpar('motor.state1.Valpha_offset', 0.2)
+setpar('motor.state1.Valpha_offset', 0.5)
 time.sleep(0.5)
 Valpha1 = getsig('motor.state1.Valpha_offset')
 Ialpha1 = getsig('motor.state1.Ialpha')
@@ -670,7 +671,7 @@ Ibeta1 = getsig('motor.state1.Ibeta')
 Ia1 = getsig('motor.state1.ia')
 bus1 = getsig('motor.state.sensBus_lp')
 
-setpar('motor.state1.Valpha_offset', 0.5)
+setpar('motor.state1.Valpha_offset', 1)
 
 time.sleep(1)
 Valpha2 = getsig('motor.state1.Valpha_offset')
@@ -680,12 +681,12 @@ Ialpha2 = getsig('motor.state1.Ialpha')
 Ibeta2 = getsig('motor.state1.Ibeta')
 bus2 = getsig('motor.state.sensBus')
 Ia2 = getsig('motor.state1.ia')
+setpar('motor.state1.Valpha_offset', 0)
 
 R = (Valpha2 - Valpha1) / (Ialpha2 - Ialpha1)
 
 offset = getsig('motor.state1.thetaPark_enc')
 
-setpar('motor.state1.Valpha_offset', 0)
 setpar('motor.conf1.commutationoffset', -offset)
 
 thetaPark = getsig('motor.state1.thetaPark')
@@ -716,26 +717,35 @@ setpar('motor.conf1.Ki_id', R/Ld)  # Current loop Ki
 setpar('motor.conf1.I_max', 20)
 setpar('motor.conf1.maxDutyCycle', 0.99)
 
-
 # %% Small inrunner surpass hobby
-Ld = 6e-6
-Lq = 6e-6
+Ld = 7.5e-6
+Lq = 7.5e-6
 R = 0.053
-setpar('motor.conf1.Lambda_m', 0.0006)
-setpar('motor.conf1.N_pp',  2)
+kv = 4800 
+N_pp = 2
+# fluxlinkage = 60 / (np.sqrt(3) * 2 * np.pi * kv * N_pp) 
+fluxlinkage = 0.0005743
+setpar('motor.conf1.Lambda_m', fluxlinkage)
+setpar('motor.conf1.N_pp',  N_pp)
 setpar('motor.conf1.Lq', Lq)
 setpar('motor.conf1.Ld', Ld)
 setpar('motor.state1.R', R)
 
-f_bw = 1e3
+f_bw = 3e3
+f_lp = f_bw*4
 
 setpar('motor.conf1.Kp_iq', Lq * f_bw * 2 * pi)  # Current loop Kp
 setpar('motor.conf1.Ki_iq', R/Lq)  # Current loop Ki
 setpar('motor.conf1.Kp_id', Ld * f_bw * 2 * pi)  # Current loop Kp
 setpar('motor.conf1.Ki_id', R/Ld)  # Current loop Ki
 
-# setpar('motor.conf1.I_max' , 20)
-# setpar('motor.conf1.maxDutyCycle' , 0.99)
+setpar('motor.conf1.I_max' , 20)
+setpar('motor.conf1.maxDutyCycle' , 0.99)
+setpar('motor.conf1.anglechoice', 1)
+
+lowpass_c = 1-np.exp(-f_lp*2*pi*Ts)
+setpar( 'motor.conf1.lowpass_Vd_c' , lowpass_c )
+setpar( 'motor.conf1.lowpass_Vq_c' , lowpass_c )
 
 # %% Iflight XING-E Pro 2207 1800KV
 Ld = 7e-6
@@ -761,6 +771,38 @@ setpar('motor.conf1.Ki_id', R/Ld)  # Current loop Ki
 setpar('motor.conf1.I_max' , 20)
 setpar('motor.conf1.maxDutyCycle' , 0.99)
 setpar('motor.conf1.anglechoice', 1)
+
+
+# %% Five33 TinyTurner 1404 Motor - 4533KV
+Ld = 10e-6
+Lq = 10e-6
+R = 0.12
+kv = 4533
+N_pp = 6
+# fluxlinkage = 60 / (np.sqrt(3) * 2 * np.pi * kv * N_pp) 
+fluxlinkage = 0.000203 * 0.97
+setpar('motor.conf1.Lambda_m', fluxlinkage)
+setpar('motor.conf1.N_pp',  N_pp)
+setpar('motor.conf1.Lq', Lq)
+setpar('motor.conf1.Ld', Ld)
+setpar('motor.state1.R', R)
+
+f_bw = 3e3
+f_lp = f_bw*8
+
+setpar('motor.conf1.Kp_iq', Lq * f_bw * 2 * pi)  # Current loop Kp
+setpar('motor.conf1.Ki_iq', R/Lq)  # Current loop Ki
+setpar('motor.conf1.Kp_id', Ld * f_bw * 2 * pi)  # Current loop Kp
+setpar('motor.conf1.Ki_id', R/Ld)  # Current loop Ki
+
+setpar('motor.conf1.I_max' , 20)
+setpar('motor.conf1.maxDutyCycle' , 0.99)
+setpar('motor.conf1.anglechoice', 1)
+
+lowpass_c = 1-np.exp(-f_lp*2*pi*Ts)
+setpar( 'motor.conf1.lowpass_Vd_c' , lowpass_c )
+setpar( 'motor.conf1.lowpass_Vq_c' , lowpass_c )
+
 # %%
 
 setpar('motor.conf1.anglechoice', 1)
@@ -809,14 +851,13 @@ df.plot()
 # %%
 
 signals = setTrace(['motor.state1.Id_SP', 'motor.state1.Iq_SP',  'motor.state1.Id_meas', 'motor.state1.Iq_meas',
-                   'motor.state.sensBus', 'motor.state.curtime', 'motor.state1.Vq', 'motor.state1.Vd'])
-df = trace(1)
+                   'motor.state.sensBus', 'motor.state1.Vq', 'motor.state1.Vd', 'motor.state1.ia', 'motor.state1.ib', 'motor.state1.ic'])
+df = trace(0.1)
 
 df.plot()
 # %%
 
-signals = setTrace(['motor.state1.erpm', 'motor.state.sensBus', 'motor.state.curtime',
-                   'motor.state1.Vq', 'motor.state1.Vd', 'motor.state1.BEMFa', 'motor.state1.BEMFb'])
+signals = setTrace(['motor.state1.BEMFa', 'motor.state1.BEMFb'])
 df = trace(1)
 
 df.plot()
@@ -826,7 +867,7 @@ setpar('motor.state1.Id_offset_SP', -5)
 
 # %%
 signals = setTrace(['motor.state1.erpm',  'motor.state1.Id_SP', 'motor.state1.Iq_SP',  'motor.state1.Id_meas',
-                   'motor.state1.Iq_meas', 'motor.state.sensBus', 'motor.state1.Vq', 'motor.state1.Vd'])
+                   'motor.state1.Iq_meas', 'motor.state.sensBus', 'motor.state1.Vq', 'motor.state1.Vd', 'motor.state1.ia', 'motor.state1.ib', 'motor.state1.ic'])
 df = trace(3)
 
 df.plot()
@@ -834,16 +875,14 @@ df.plot()
 
 # %%
 signals = setTrace(['motor.state1.erpm',  'motor.state1.Id_SP', 'motor.state1.Iq_SP',  'motor.state1.Id_meas',
-                   'motor.state1.Iq_meas', 'motor.state.sensBus', 'motor.state1.Vq', 'motor.state1.Vd'])
+                   'motor.state1.Iq_meas', 'motor.state.sensBus', 'motor.state1.Vq', 'motor.state1.Vd','motor.state1.BEMFa', 'motor.state1.BEMFb'])
 
 setpar('motor.state1.Iq_offset_SP', 0.5)
 # %%
-setpar('motor.state1.Iq_offset_SP', 6.6)
+setpar('motor.state1.Iq_offset_SP', 4.5)
 df = trace(3)
-setpar('motor.state1.Iq_offset_SP', 3)
+setpar('motor.state1.Iq_offset_SP', 2)
 df2 = trace(1)
-setpar('motor.state1.Iq_offset_SP', 1)
-df3 = trace(1)
 setpar('motor.state1.Iq_offset_SP', 0)
 df.plot()
 
@@ -857,7 +896,7 @@ setpar('motor.state1.Iq_offset_SP', 1)
 df3 = trace(1)
 setpar('motor.state1.Iq_offset_SP', 0)
 # %%
-setpar('motor.state1.muziek_gain', 1)
+setpar('motor.state1.muziek_gain', 8)
 setpar('motor.state2.muziek_gain', 1)
 
 setpar('motor.state1.muziek_gain', 0)
@@ -941,14 +980,14 @@ print(getsigpart('motor.state1.current', 1, 3))
 # %% Current loop axis 1  
 setpar('motor.conf1.anglechoice', 0)
 
-NdownsamplePRBS = 2
+NdownsamplePRBS = 1
 N = 30*NdownsamplePRBS*2047
 signals = ['motor.state1.Id_meas', 'motor.state1.Iq_meas',
            'motor.state1.dist', 'motor.state1.Vq', 'motor.state1.Vd']
 setTrace(signals )
 
 
-gain = 10
+gain = 1
 setpar('motor.state1.Vq_distgain', 1)
 setpar('motor.state1.Vd_distgain', 1)
 setpar('motor.state1.Iq_distgain', 0)
@@ -1024,7 +1063,7 @@ plt.plot(
     f, np.abs(1/(Pd * f * 2 * np.pi)) * 1e6)
 plt.grid()
 plt.xlim([1e3, 10e3])
-plt.ylim([ 100 , 300])
+# plt.ylim([ 100 , 300])
 plt.title('Ld [uH]')
 
 
@@ -1033,7 +1072,7 @@ plt.plot(
     f, np.abs(1/(Pq * f * 2 * np.pi)) * 1e6)
 plt.grid()
 plt.xlim([1e3, 10e3])
-plt.ylim([ 100 , 300])
+# plt.ylim([ 100 , 300])
 plt.title('Lq [uH]')
 
 
@@ -1523,6 +1562,7 @@ setpar('motor.conf1.Lq', Lq)
 setpar('motor.conf1.Ld', Ld)
 setpar('motor.state1.R', R)
 #%%   Setpoint
+downsample = 10
 setpar('motor.state1.rdelay' , 0)
 
 setpar('motor.state1.Jload' , 7.2e-5)
@@ -1534,7 +1574,7 @@ setpar('motor.state2.velFF' , 0.0002)
 # setpar('motor.state2.Jload' , 0)
 # setpar('motor.state2.velFF' , 0)
 # 
-setTrace( ['motor.state.sensBus' , 'motor.state.sensBus2' , 'motor.state1.mechcontout' , 'motor.state1.T_FF_acc', 'motor.state1.T_FF_vel', 'motor.state.sensBus_lp','motor.state1.rmech' , 'motor.state1.vel', 'motor.state1.emech', 'motor.state2.emech', 'motor.state1.Vd', 'motor.state1.Vq' , 's1.VqFF' ,'motor.state1.Iq_SP', 'motor.state2.Iq_SP'])
+setTrace( ['motor.state.sensBus' , 'motor.state.sensBus2' , 'motor.state1.mechcontout' , 'motor.state1.T_FF_acc', 'motor.state1.T_FF_vel', 'motor.state.sensBus_lp','motor.state1.rmech' , 'motor.state1.vel', 'motor.state1.emech', 'motor.state2.emech', 'motor.state1.Vd', 'motor.state1.Vq' , 's1.VqFF' ,'motor.state1.Iq_SP', 'motor.state2.Iq_SP'] , downsample)
 # setTrace( ['motor.state.sensBus' , 'motor.state.sensBus2' , 'motor.state2.mechcontout' , 's2.T_FF_acc', 's2.T_FF_vel', 'motor.state.sensBus_lp','s2.rmech' , 's2.vel','s2.ymech' , 's2.emech', 's2.Vd', 's2.Vq' , 's2.Iq_SP', 's2.Id_meas' , 's2.Iq_meas', 's1.Id_meas' , 's1.Iq_meas'])
 # setTrace( ['motor.state1.rmech' , 'motor.state2.rmech' , 'motor.state1.ymech' , 'motor.state2.ymech' ,'motor.state1.vel' , 'motor.state2.vel', 'motor.state1.emech' , 'motor.state2.emech'])
 # setTrace( ['motor.state1.rmech' ,  'motor.state1.ymech' , 'motor.state1.emech' , 's2.thetaPark' ,'s1.Iq_SP' , 's1.Iq_meas' , 's1.Iq_e', 's1.Id_meas' , 's2.Iq_SP' , 's2.Iq_meas' , 's2.Iq_e', 's2.Id_meas' ,  's1.Vd', 's1.Vq',   's.sens1', 's.sens2','s.sens3', 's.sens4', 's2.ia', 's2.ib'])
@@ -1542,6 +1582,8 @@ setTrace( ['motor.state.sensBus' , 'motor.state.sensBus2' , 'motor.state1.mechco
 # setTrace( ['s2.rmech' ,  's2.ymech' , 's2.emech' ])
 
 p = 360
+# prepSP( p/360*2*pi , 15 , 800 ,1500000 , 1)
+# prepSP( p/360*2*pi , 15 , 800 ,1500000 , 2)
 prepSP( p/360*2*pi , 150 , 8000 ,1500000 , 1)
 prepSP( p/360*2*pi , 150 , 8000 ,1500000 , 2)
 

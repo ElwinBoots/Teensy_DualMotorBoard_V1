@@ -13,7 +13,7 @@
 #define SQRT_TWO_THREE  0.81649658092
 #define SQRT3_by_2      0.86602540378
 
-#define F_PWM 48e3
+#define F_PWM 30e3
 #define CHOPPERPIN 33 //Digital output for chopper resistor
 #define DEBUGPIN 32
 #define ENGATE  34
@@ -39,7 +39,6 @@ enum commands {
 typedef struct mot_conf_t {
   int anglechoice;
   float advancefactor;
-  bool haptic;
   bool reversecommutation;
   float maxDutyCycle;
   unsigned int ridethewave;
@@ -90,8 +89,8 @@ typedef struct mot_state_t {
   float i_vector_radpers_act;
   float BEMFa;
   float BEMFb;
-  float Ialpha_last;
-  float Ibeta_last;
+  float Ialpha_prev;
+  float Ibeta_prev;
   float Vq;
   float Vd;
   float Valpha;
@@ -139,9 +138,6 @@ typedef struct mot_state_t {
   float velFF;
   float R;
 
-  float Jload2;
-  float velFF2;
-
   double offsetVelTot;
   float offsetVel;
   float offsetVel_lp;
@@ -162,8 +158,6 @@ typedef struct mot_state_t {
   float thetaPark_obs_prev;
   float co;
   float si;
-  float D;
-  float Q;
   float tA;
   float tB;
   float tC;
@@ -267,6 +261,8 @@ typedef struct globalstate_t {
   int n_senscalib;
   bool setupready;
   unsigned int curtime;
+  unsigned int prevtime;
+  unsigned int overloadcounter;
   bool is_v7;
   unsigned int firsterror;
   unsigned int curloop;

@@ -67,11 +67,11 @@ void setup() {
 
   pinMode( ENGATE , OUTPUT);
   digitalWrite( ENGATE , 1); // To be updated!
-  SPI_init( SSPIN );  // Only for DRV8301.
+  //SPI_init( SSPIN );  // Only for DRV8301.
 
   pinMode( ENGATE2 , OUTPUT);
   digitalWrite( ENGATE2 , 1); // To be updated!
-  SPI_init( SSPIN2 );  // Only for DRV8301.
+  //SPI_init( SSPIN2 );  // Only for DRV8301.
 
   //DRV8302_init( SSPIN2 , 13 ); // Note: pin 13 is also the SCLK pin for communication with DRV8301 and the LED.
   xbar_init();
@@ -270,7 +270,7 @@ void flexpwm4_init() {     //set PWM
   FLEXPWM4_SM1VAL2 = 0;
   FLEXPWM4_SM2VAL3 = 0;
   FLEXPWM4_SM2VAL2 = 0;
-  
+
   //int adc_shift = 0; //New idea. Do not shift the ADC. Probably the ADC takes a quick sample of the signal at the right moment, rest of the time is to get the value.
   //Back to old idea of shifting. Current measurements are better this way (less issue when high duty cycle:
   const int adc_shift = 0; //Tuned by making it finish at the switch moment, then divide offset by 2.
@@ -341,7 +341,11 @@ void adcetc0_isr() {
 
 void adcetc1_isr() {
   ADC_ETC_DONE0_1_IRQ &= 1 << 20;   // clear
+  motor.state.prevtime = motor.state.curtime;
   motor.state.curtime = micros();
+  if ((motor.state.curtime - motor.state.prevtime) > (motor.conf.Ts + 3)) {
+    motor.state.overloadcounter += 1;
+  }
   motor.state.is_v7 = (FLEXPWM2_SM0STS & FLEXPWM_SMSTS_CMPF(2));  //is_v7 = True when in v7
   FLEXPWM2_SM0STS |= FLEXPWM_SMSTS_CMPF(2); //Reset flag
 
@@ -360,7 +364,7 @@ void adcetc1_isr() {
   motor.state1.ia = motor.conf1.adc2A * (motor.state.sens1 - motor.state.sens1_calib);
   motor.state1.ib = motor.conf1.adc2A * (motor.state.sens2 - motor.state.sens2_calib);
   motor.state1.ic = -motor.state1.ia - motor.state1.ib;
-  
+
   motor.state2.ia = motor.conf2.adc2A * (motor.state.sens3 - motor.state.sens3_calib);
   motor.state2.ib = motor.conf2.adc2A * (motor.state.sens4 - motor.state.sens4_calib);
   motor.state2.ic = -motor.state2.ia - motor.state2.ib;
@@ -372,7 +376,7 @@ void adcetc1_isr() {
   //  else {
   //    //    digitalWrite( CHOPPERPIN , LOW);
   //  }
-  
+
   if ( motor.state.sensBus > 45 or motor.state.sensBus2 > 45 ) {
     error(41 , &motor.state1);
   }
@@ -447,9 +451,10 @@ void updateDisturbance() {
     motor.state.ss_phase -= 2 * M_PI; //Required, because high value floats are inaccurate
   }
   //motor.state.ss_out = ss_offset_lp + motor.conf1.ss_gain * arm_sin_f32( motor.state.ss_phase ); //sin() measured to be faster then sinf(); arm_sin_f32() is way faster!
-  float sin_phase = sin( motor.state.ss_phase );
-  motor.state1.ss_out = motor.conf1.ss_gain * sin_phase;
-  motor.state2.ss_out = motor.conf2.ss_gain * sin_phase;
+  float sin_val = sin( motor.state.ss_phase );
+
+  motor.state1.ss_out = motor.conf1.ss_gain * sin_val;
+  motor.state2.ss_out = motor.conf2.ss_gain * sin_val;
   motor.state1.dist = motor.state1.distval * 1 * (motor.state.noisebit - 0.5) + motor.state1.distoff + motor.state1.ss_out;
   motor.state2.dist = motor.state2.distval * 1 * (motor.state.noisebit - 0.5) + motor.state2.distoff + motor.state2.ss_out;
 }
@@ -579,11 +584,11 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
   //Angle observer by mxlemming
   float L = (confX->Ld + confX->Lq) / 2;
   stateX->BEMFa = stateX->BEMFa + (stateX->Valpha - stateX->R * stateX->Ialpha) * motor.conf.T -
-                  L * (stateX->Ialpha - stateX->Ialpha_last);
+                  L * (stateX->Ialpha - stateX->Ialpha_prev);
   stateX->BEMFb = stateX->BEMFb + (stateX->Vbeta - stateX->R * stateX->Ibeta) * motor.conf.T -
-                  L * (stateX->Ibeta - stateX->Ibeta_last)  ;
-  stateX->Ialpha_last = stateX->Ialpha;
-  stateX->Ibeta_last = stateX->Ibeta;
+                  L * (stateX->Ibeta - stateX->Ibeta_prev)  ;
+  stateX->Ialpha_prev = stateX->Ialpha;
+  stateX->Ibeta_prev = stateX->Ibeta;
   if (stateX->BEMFa > confX->Lambda_m  ) {
     stateX->BEMFa = confX->Lambda_m ;
   }
@@ -665,9 +670,9 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     stateX->edeltarad = -confX->max_edeltarad;
     stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
   }
-  
-  LOWPASS( stateX->eradpers_lp , stateX->edeltarad / motor.conf.T ,0.005 ); //50 Hz when running at 60 kHz
-  
+
+  LOWPASS( stateX->eradpers_lp , stateX->edeltarad / motor.conf.T , 0.005 ); //50 Hz when running at 60 kHz
+
   stateX->erpm = stateX->eradpers_lp * 60 / (2 * M_PI);
   stateX->thetaParkPrev = stateX->thetaPark;
   stateX->hfi_abs_pos += stateX->edeltarad;
@@ -686,7 +691,7 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
   }
 
   stateX->Iq_SP += stateX->muziek_gain * muziek[ (motor.state.curloop / (50 / (int)motor.conf.Ts)) % (sizeof(muziek) / 4) ];
-  
+
   if (stateX->runstream) {
     stateX->curbuffer += 1;
   }
@@ -762,7 +767,7 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     }
     else
     {
-        stateX->hfi_error = -stateX->hfi_curangleest; //Negative feedback
+      stateX->hfi_error = -stateX->hfi_curangleest; //Negative feedback
     }
     stateX->hfi_dir_int += motor.conf.T * stateX->hfi_error * stateX->hfi_gain_int2; //This the the double integrator
 
@@ -1012,7 +1017,7 @@ void communicationProcess() {
   if (trace.send_all) {
     static uint32_t i_total = 0;
     for ( uint32_t i = 0; i < 14; i++) {
-      if (( trace.all_pointers[i_total] != NULL && i_total < sizeof(trace.all_pointers))) {
+      if (( trace.all_pointers[i_total] != NULL && i_total < sizeof(trace.all_pointers) / sizeof(trace.all_pointers[0]) )) {
         Serial.write( trace.all_pointers[i_total] , trace.all_lengths[i_total]);
         i_total++;
       }
@@ -1028,7 +1033,7 @@ void communicationProcess() {
   if ( trace.n_to_send > 0) {
     if ( motor.state.downsample < 1) {
       motor.state.downsample = motor.conf.Ndownsample;
-      for ( uint32_t i = 0; i < sizeof(trace.pointers) ; i++) {
+      for ( uint32_t i = 0; i < sizeof(trace.pointers) / sizeof(trace.pointers[0]) ; i++) {
         if ( trace.pointers[i] == NULL) {
           break;
         }
@@ -1176,7 +1181,7 @@ void processSerialIn() {
       {
         Serial.readBytes( (char*)&isignal , 4);
         uint8_t traceposition = Serial.read();
-        if (isignal < sizeof( trace.all_types )) {
+        if (isignal < sizeof(trace.all_pointers) / sizeof(trace.all_pointers[0]) ) {
           trace.pointers[traceposition] = trace.all_pointers[isignal] ;
           trace.lengths[traceposition] = trace.all_lengths[isignal];
         }
@@ -1188,7 +1193,7 @@ void processSerialIn() {
       }
     case 'T':
       {
-        for (uint32_t i = 0; i < sizeof( trace.all_types ) ; i ++) {
+        for (uint32_t i = 0; i < sizeof(trace.all_pointers) / sizeof(trace.all_pointers[0]) ; i ++) {
           if ( trace.names[i] == NULL) {
             break;
           }
