@@ -8,7 +8,7 @@ Created on Sat Oct  7 14:51:16 2023
 Fplayback = round(1/m.Ts)
 N_samples_per_write = 100
 bufsize = 10000
-musicgain = 3
+musicgain = 4
 
 import scipy
 

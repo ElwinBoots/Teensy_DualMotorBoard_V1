@@ -8,6 +8,7 @@ import os
 os.chdir('C:\GIT\Teensy_DualMotorBoard_V1')
 import make3
 import control as ct
+import threading
 
 pi = np.pi
 # plt.rcParams["figure.dpi"] = 200 #Use this with 4k screens
@@ -34,12 +35,13 @@ def getTeensyPort( SERIAL_NUMBER=''  ):
   
 class Motor:
   def __init__( self , SERIAL_NUMBER='' ):
+    self.readinbackground = False
+    self.data = list()
+
     self.com, self.serialnumber = getTeensyPort(SERIAL_NUMBER)
-    self.ser = serial.Serial( self.com , timeout=0.1)  # open serial port
+    self.ser = serial.Serial( self.com , timeout=0.02)  # open serial port
     if self.ser.isOpen():
       print(f'Connected to Teensy on {self.com} with serial number: {self.serialnumber}.')
-    # self.ser.flush()
-    # time.sleep(0.1)
     # Get signal names, lengths and types
     self.ser.write(b'T')
     buffer = self.ser.readlines()
@@ -84,6 +86,9 @@ class Motor:
     self.Ts = self.getsig('motor.conf.T')
     self.setTrace(0)
     
+    t = threading.Thread(target=self.serialEvent )
+    t.start()
+    
   def getsigid( self , signal ):
       if isinstance(signal, list):
           signal = signal[0]
@@ -119,6 +124,7 @@ class Motor:
   
   
   def getsig( self, signal):
+      self.readinbackground = False
       signal = self.getsigid( signal )
       if self.sigbytes[ signal ] < 1500: #Value not tuned
         self.ser.write(b'G' + struct.pack('I',  signal))
@@ -160,7 +166,7 @@ class Motor:
       df = pd.DataFrame( a , index=names ).T
       return df
 
-  def setTrace( self , signals, downsample=1):
+  def setTrace( self , signals):
       maxsize = 50
       if isinstance(signals, str) or isinstance(signals, int):
           signals = [signals]
@@ -182,13 +188,15 @@ class Motor:
           i += 1
       if i < 30: #If not max number of signals, append null pointer to show end of pointers
         self.ser.write(b't' + struct.pack('I', 499) + struct.pack('I', i))      # Hardcoded high value, to be improved
-      self.setpar('motor.conf.Ndownsample' , int( downsample ))
       return signalsout
   
-  
-  def trace( self , t, outtype='df'):
-      Ts_downsample = self.Ts * self.getsig('motor.conf.Ndownsample')
-      i = int(np.ceil(t/Ts_downsample).astype('int') + 1)
+
+  def trace( self , t, downsample=1, outtype='df' ):
+      self.readinbackground = False
+      self.setpar('motor.conf.Ndownsample' , int( downsample ))
+      self.Ts_downsample = self.Ts * downsample
+      self.ser.timeout = max(self.Ts_downsample * 1.2 , 0.02 )
+      i = int(np.ceil(t/self.Ts_downsample).astype('int') + 1)
       self.ser.reset_input_buffer()
       self.ser.write(b'b' + struct.pack('I', i))
       buffer = self.ser.readall()
@@ -202,7 +210,7 @@ class Motor:
                   dtypestrace.append(self.dtypessep2[isignal])
           arr = np.ndarray(i, dtype=dtypestrace,  buffer=buffer)
           df = pd.DataFrame(arr)
-          df.index = np.linspace( 0 , len(df)-1 , len(df)) * Ts_downsample
+          df.index = np.linspace( 0 , len(df)-1 , len(df)) * self.Ts_downsample
           df.index.name = 'Time [s]'
           return df
       elif outtype == 'arr':
@@ -210,8 +218,62 @@ class Motor:
           arr = np.ndarray(i, dtype=dtypestrace,  buffer=buffer)
           return arr
 
+  def tracebg( self , t=-1 , downsample=1):
+      self.setpar('motor.conf.Ndownsample' , int( downsample ))
+      self.Ts_downsample = self.Ts * downsample
+      self.ser.timeout = max(self.Ts_downsample * 1.2 , 0.02 )
+      if t == -1:
+          i = int(2**32-1)
+      else:
+          i = int(np.ceil(t/self.Ts_downsample).astype('int') + 1)
+      self.readinbackground = True
+      self.ser.write(b'b' + struct.pack('I', i))
+
+  def stoptrace( self ):
+      self.ser.write(b'b' + struct.pack('I', 0))
+
+  def stoptracegetdata( self ):
+      self.stoptrace()
+      while len(self.data) == 0:
+        pass
+      return self.gettracedata()
+      
+  def gettracedata( self , outtype='df'):
+      if len(self.data) == 0:
+        print('No data available')
+        return
+      buffer = self.data.pop()
+      i = int(len(buffer) / self.tracebytes)
+      if outtype == 'df':
+          dtypestrace = []
+          for isignal in self.tracesignals:
+              if(isinstance(self.dtypessep2[isignal], list)):
+                  for dtype in self.dtypessep2[isignal]:
+                      dtypestrace.append(dtype)
+              else:
+                  dtypestrace.append(self.dtypessep2[isignal])
+          arr = np.ndarray(i, dtype=dtypestrace,  buffer=buffer)
+          df = pd.DataFrame(arr)
+          df.index = np.linspace( 0 , len(df)-1 , len(df)) * self.Ts_downsample
+          df.index.name = 'Time [s]'
+          return df
+      elif outtype == 'arr':
+          dtypestrace = [self.dtypes[j] for j in self.tracesignals]
+          arr = np.ndarray(i, dtype=dtypestrace,  buffer=buffer)
+          return arr
+
+  def serialEvent( self ):
+      while True:
+        while self.readinbackground is True:
+          if self.ser.in_waiting > 0:
+            self.data.append(self.ser.readall())
+            print( 'New data available' )
+        time.sleep(0.05)
+      return
+
   def disconnect(self):
       print('Closing connection')
+      self.readinbackground = False
       self.ser.close()
 
   def connect(self ):
@@ -276,8 +338,8 @@ class SubVariable:
     return sorted(keys_removed)
 
 
-m = Motor(  )
-motor = MotorVariables( m )
-
+if __name__ == "__main__":
+  m = Motor(  )
+  motor = MotorVariables( m )
 
 

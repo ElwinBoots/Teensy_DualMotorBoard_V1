@@ -1,7 +1,11 @@
 #%%
+import motorclass
 import pyqtgraph as pg
-from PyQt5.QtWidgets import QApplication, QGridLayout, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLineEdit, QSlider
-from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtWidgets import QApplication, QGridLayout, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLineEdit, QSlider, QCompleter
+from PyQt5.QtCore import QObject, pyqtSignal, QEvent
+from PyQt5.QtCore import Qt
+import struct
+
 from pyqtgraph.parametertree import Parameter, ParameterTree
 from pyqtgraph.Qt import QtCore, QtWidgets
 from pyqtgraph.widgets.PlotWidget import PlotWidget
@@ -10,6 +14,10 @@ import numpy as np
 pg.setConfigOption('background', 'k')
 pg.setConfigOption('foreground', 'w')
 
+m = motorclass.Motor(  )
+motor = motorclass.MotorVariables( m )
+
+#%%
 maxdata = 2001
 Tsample = 0.01
 
@@ -142,31 +150,37 @@ def update(data1 , data2 , data3, data4 , data5 , data6 , data7 , data8 , data9 
     return
 
 class Thread(pg.QtCore.QThread):
+    def __init__(self):
+      super(pg.QtCore.QThread, self).__init__()
+      self.ready = False
+  
     def startdata(self, signals):
-        signals = setTrace(signals)
-        global dtypestrace, buffer
-        dtypestrace = [dtypes[j] for j in ser.signals]
-        buffer = bytearray(int(ser.tracebytes ))
+        signals = m.setTrace(signals)
+        self.dtypestrace = [m.dtypes[j] for j in m.tracesignals]
+        self.buffer = bytearray(int(m.tracebytes ))
         # setpar('motor.conf.Ndownsample' , int( 1/Ts ))
         self.stopdata()
-        setpar('motor.conf.Ndownsample' , int( Tsample/Ts ))
-        ser.write(b'b' + struct.pack('I',  int(2**32-1)))
+        m.setpar('motor.conf.Ndownsample' , int( Tsample/m.Ts ))
+        m.ser.write(b'b' + struct.pack('I',  int(2**32-1)))
+        self.ready = True
     
     def stopdata(self):
-        ser.write(b'b' + struct.pack('I',  int(0)))
-        ser.flushInput()
+        m.ser.write(b'b' + struct.pack('I',  int(0)))
+        m.ser.flushInput()
     
     def resume(self):
-        ser.write(b'b' + struct.pack('I',  int(2**32-1)))  
+        m.ser.write(b'b' + struct.pack('I',  int(2**32-1)))  
 
     # newData = pg.QtCore.Signal(object)
     newData = pg.QtCore.Signal(float , float , float , float , float , float, float , float, float)
     def run(self):
+        while not self.ready:
+            pass
         while not win.isHidden():
-            while ser.in_waiting < len(buffer):
-                bla = 1
-            ser.readinto(buffer)
-            arr = np.ndarray(1, dtype=dtypestrace,  buffer=buffer)
+            while m.ser.in_waiting < len(self.buffer) or not tracerunning:
+                pass
+            m.ser.readinto(self.buffer)
+            arr = np.ndarray(1, dtype=self.dtypestrace,  buffer=self.buffer)
             # self.newData.emit( self.arr[0][0] , self.arr[0][1] , self.arr[0][2] , self.arr[0][3]  , self.arr[0][4] , self.arr[0][5]  ) # <- Here you emit a signal!
             self.newData.emit(arr[0][0],arr[0][1],arr[0][2],arr[0][3],arr[0][4],arr[0][5],arr[0][6],arr[0][7],arr[0][8] )
             # self.newData.emit( self.arr[0] ) # <- Here you emit a signal!
@@ -177,7 +191,7 @@ class Thread(pg.QtCore.QThread):
 
 
 maxbytes = 8
-df = readall( maxbytes )
+df = m.getallsig( maxbytes )
 
 # params = list()
 # for i in np.argsort( signames):
@@ -193,19 +207,19 @@ df = readall( maxbytes )
 #         params.append( {'name' : signames[i]  , 'type':  sertype , 'value': df[signames[i]][0] } )    
        
 params = list()
-for i in np.argsort( signames):
-    if sigbytes[i] <= maxbytes: 
-        signames[i].split('.')
-        if sigtypes[i] == 'f':
+for i in np.argsort( m.signames):
+    if m.sigbytes[i] <= maxbytes: 
+        m.signames[i].split('.')
+        if m.sigtypes[i] == 'f':
             sertype = 'float'
-        if sigtypes[i] == 'b':
+        if m.sigtypes[i] == 'b':
             sertype = 'bool'
-        if sigtypes[i] == 'i':
+        if m.sigtypes[i] == 'i':
             sertype = 'int'
-        if sigtypes[i] == 'I':
+        if m.sigtypes[i] == 'I':
             sertype = 'int'
-        if not (type(df[signames[i]][0]) == np.ndarray):
-            params.append( {'name' : signames[i]  , 'type':  sertype , 'value': df[signames[i]][0] } )
+        if not (type(df[m.signames[i]][0]) == np.ndarray):
+            params.append( {'name' : m.signames[i]  , 'type':  sertype , 'value': df[m.signames[i]][0] } )
 
 
 # params = [
@@ -249,21 +263,21 @@ def _enable_apply( param, changes):
 def update_tree():
     if tracerunning:
         thread.stopdata()
-    df = readall( maxbytes )
+    df = m.getallsig( maxbytes )
     if tracerunning:
         thread.resume()
     params = list()
-    for i in range(len(signames)):
-        if sigbytes[i] <= maxbytes: 
-            if sigtypes[i] == 'f':
+    for i in range(len(m.signames)):
+        if m.sigbytes[i] <= maxbytes: 
+            if m.sigtypes[i] == 'f':
                 sertype = 'float'
-            if sigtypes[i] == 'b':
+            if m.sigtypes[i] == 'b':
                 sertype = 'bool'
-            if sigtypes[i] == 'i':
+            if m.sigtypes[i] == 'i':
                 sertype = 'int'
-            if sigtypes[i] == 'I':
+            if m.sigtypes[i] == 'I':
                 sertype = 'int'
-            params.append( {'name' : signames[i]  , 'type':  sertype , 'value': df[signames[i]][0] } )    
+            params.append( {'name' : m.signames[i]  , 'type':  sertype , 'value': df[m.signames[i]][0] } )    
     # _params = Parameter.create(name='params', type='group',      children=params)
     # _params.setValue( params )
     _params.sigTreeStateChanged.disconnect()
@@ -293,7 +307,7 @@ def apply_parameters():
                 print("  change:    %s" % change)
                 print("  data:      %s" % str(data))
                 print("  ----------")
-                setpar( childName , data )
+                m.setpar( childName , data )
         apply_btn.setStyleSheet("background-color: grey")
         totalchanges = []
         changes_ready_to_transmit = 0
@@ -332,7 +346,30 @@ t = ParameterTree()
 t.setParameters(_params, showTop=False)
 
 
-textbox = QLineEdit()
+class MyLineEdit(QLineEdit):
+    tabPressed = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        wordList = ["motor" , "motrrr" , "omicron" , "zeta"]
+        self._compl = QCompleter( wordList )
+        self.tabPressed.connect(self.next_completion)
+
+    def next_completion(self):
+        index = self._compl.currentIndex()
+        self._compl.popup().setCurrentIndex(index)
+        start = self._compl.currentRow()
+        if not self._compl.setCurrentRow(start + 1):
+            self._compl.setCurrentRow(0)
+
+    def event(self, event):
+        if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Tab:
+            self.tabPressed.emit()
+            return True
+        return super().event(event)
+
+
+textbox = MyLineEdit()
 textbox.textChanged.connect(filter_tree)
 
 layout2 = QVBoxLayout()
@@ -379,8 +416,8 @@ thread.start()
 
 
 
-# thread.startdata( [ 'motor.state1.Id_SP', 'motor.state1.Iq_SP', 'motor.state1.Id_meas', 'motor.state1.Iq_meas', 'motor.state1.encoderPos1', 'motor.state1.encoderPos2','motor.state1.Vd','motor.state1.Vq','motor.state1.maxVolt'] )
-thread.startdata( [ 'motor.state1.Iq_SP', 'motor.state2.Iq_SP', 'motor.state1.Iq_meas', 'motor.state2.Iq_meas', 'motor.state1.rmech', 'motor.state1.ymech','motor.state1.Vd','motor.state1.Vq','motor.state1.maxVolt'] )
+thread.startdata( [ 'motor.state1.Id_SP', 'motor.state1.Iq_SP', 'motor.state1.Id_meas', 'motor.state1.Iq_meas', 'motor.state1.encoderPos1', 'motor.state2.encoderPos1','motor.state1.Vd','motor.state1.Vq','motor.state1.maxVolt'] )
+# thread.startdata( [ 'motor.state1.Iq_SP', 'motor.state2.Iq_SP', 'motor.state1.Iq_meas', 'motor.state2.Iq_meas', 'motor.state1.rmech', 'motor.state1.ymech','motor.state1.Vd','motor.state1.Vq','motor.state1.maxVolt'] )
 
 
 
