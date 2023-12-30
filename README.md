@@ -40,7 +40,7 @@ Note: I use the 816 Mhz (overclock) option in the CPU speed menu.
 1. In Spyder, run first cell (ctrl + enter) in test_object.py (for any missing modules, run `pip install <modulename>` in a cmd window.
 2. When a Teensy is found with the correct firmware, you should get: "Connected to Teensy on COMX with serial number: XXXXXXXX."
 3. Check that the LED on the Teensy is off. If it is still on, make check connection and power to DRV8301 boards, or comment out SPI_init( SSPIN ); and/or SPI_init( SSPIN2 ) to test without DRV8301 boards.
-4. Now you can type `motor` in the IPython console, and it should show all parameters: 
+4. Now you can type `motor` in the IPython console, and it should show all parameters:\
 ![afbeelding](https://github.com/ElwinBoots/Teensy_DualMotorBoard_V1/assets/79989749/8c7ca115-ee76-41d0-a0b3-b3fa819649d2)
 
 
