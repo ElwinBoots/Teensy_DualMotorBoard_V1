@@ -1,5 +1,8 @@
 This project aims to deliver high performance (fast loops > 40 kHz, fast motion, and small following errors) brushless motor control.
 
+## Videos in action 
+See: https://www.youtube.com/@elwinboots2614
+
 ## Hardware 
 - 1 Simple custom PCB for making connections
 - 1 Teensy 4.1
