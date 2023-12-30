@@ -1,21 +1,22 @@
 #%%
-import motorclass
-import pyqtgraph as pg
-from PyQt5.QtWidgets import QApplication, QGridLayout, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLineEdit, QSlider, QCompleter
-from PyQt5.QtCore import QObject, pyqtSignal, QEvent
-from PyQt5.QtCore import Qt
-import struct
+# import pyqtgraph as pg
+# from PyQt5.QtWidgets import QApplication, QGridLayout, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLineEdit, QSlider, QCompleter
+# from PyQt5.QtCore import QObject, pyqtSignal, QEvent
+# from PyQt5.QtCore import Qt
+# import struct
 
-from pyqtgraph.parametertree import Parameter, ParameterTree
-from pyqtgraph.Qt import QtCore, QtWidgets
-from pyqtgraph.widgets.PlotWidget import PlotWidget
-import numpy as np
+# from pyqtgraph.parametertree import Parameter, ParameterTree
+# from pyqtgraph.Qt import QtCore, QtWidgets
+# from pyqtgraph.widgets.PlotWidget import PlotWidget
+# import numpy as np
 
-pg.setConfigOption('background', 'k')
-pg.setConfigOption('foreground', 'w')
+# pg.setConfigOption('background', 'k')
+# pg.setConfigOption('foreground', 'w')
 
-m = motorclass.Motor(  )
-motor = motorclass.MotorVariables( m )
+# import TeensyMotorControl as tc
+
+# m = tc.Motor(  )
+# motor = tc.MotorVariables( m )
 
 #%%
 maxdata = 2001
@@ -156,8 +157,8 @@ class Thread(pg.QtCore.QThread):
   
     def startdata(self, signals):
         signals = m.setTrace(signals)
-        self.dtypestrace = [m.dtypes[j] for j in m.tracesignals]
-        self.buffer = bytearray(int(m.tracebytes ))
+        self.dtypestrace = [m._dtypes[j] for j in m._tracesignals]
+        self.buffer = bytearray(int(m._tracebytes ))
         # setpar('motor.conf.Ndownsample' , int( 1/Ts ))
         self.stopdata()
         m.setpar('motor.conf.Ndownsample' , int( Tsample/m.Ts ))
@@ -208,15 +209,15 @@ df = m.getallsig( maxbytes )
        
 params = list()
 for i in np.argsort( m.signames):
-    if m.sigbytes[i] <= maxbytes: 
+    if m._sigbytes[i] <= maxbytes: 
         m.signames[i].split('.')
-        if m.sigtypes[i] == 'f':
+        if m._sigtypes[i] == 'f':
             sertype = 'float'
-        if m.sigtypes[i] == 'b':
+        if m._sigtypes[i] == 'b':
             sertype = 'bool'
-        if m.sigtypes[i] == 'i':
+        if m._sigtypes[i] == 'i':
             sertype = 'int'
-        if m.sigtypes[i] == 'I':
+        if m._sigtypes[i] == 'I':
             sertype = 'int'
         if not (type(df[m.signames[i]][0]) == np.ndarray):
             params.append( {'name' : m.signames[i]  , 'type':  sertype , 'value': df[m.signames[i]][0] } )
@@ -268,14 +269,14 @@ def update_tree():
         thread.resume()
     params = list()
     for i in range(len(m.signames)):
-        if m.sigbytes[i] <= maxbytes: 
-            if m.sigtypes[i] == 'f':
+        if m._sigbytes[i] <= maxbytes: 
+            if m._sigtypes[i] == 'f':
                 sertype = 'float'
-            if m.sigtypes[i] == 'b':
+            if m._sigtypes[i] == 'b':
                 sertype = 'bool'
-            if m.sigtypes[i] == 'i':
+            if m._sigtypes[i] == 'i':
                 sertype = 'int'
-            if m.sigtypes[i] == 'I':
+            if m._sigtypes[i] == 'I':
                 sertype = 'int'
             params.append( {'name' : m.signames[i]  , 'type':  sertype , 'value': df[m.signames[i]][0] } )    
     # _params = Parameter.create(name='params', type='group',      children=params)

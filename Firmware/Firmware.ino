@@ -16,8 +16,11 @@ MotionProfile *SPprofile2 = new MotionProfile( 0 , 0.0005 , 0.0193 , 0 , 3.14 , 
 QuadEncoder Encoder1(1, 0, 1 , 0 , 3);   //Encoder 1 on pins 0 and 1, index on pin 3
 QuadEncoder Encoder2(2, 30, 31 , 0 , 33);//Encoder 2 on pins 30 and 31, index on pin 33
 
+bool sendnames = false;
+
 void initparams( motor_total_t* m ) {
   m->conf.Ts = 1e6 / (2 * F_PWM);
+  m->conf.fs = 2 * F_PWM;
   m->conf.T = m->conf.Ts / 1e6;
   m->conf.Busadc2Vbus = 1 / 4095.0 * 3.3 * ((68.3 + 5.05) / 5.05); //5.1 changed to 5.05 to improve accuracy. May differ board to board.
   m->conf.V_Bus = 24; //Bus Voltage
@@ -57,8 +60,6 @@ void initmotor( mot_conf_t* m , mot_state_t* state ) {
 void setup() {
   initparams( &motor );
 
-  Serial.begin(1);
-
   for (int i = 0; i < 6; i++)
   {
     Biquads1[i] = new Biquad( bq_type_lowpass , 0 , 0.7, 2 * F_PWM);;
@@ -67,11 +68,11 @@ void setup() {
 
   pinMode( ENGATE , OUTPUT);
   digitalWrite( ENGATE , 1); // To be updated!
-  //SPI_init( SSPIN );  // Only for DRV8301.
+  SPI_init( SSPIN );  // Only for DRV8301.
 
   pinMode( ENGATE2 , OUTPUT);
   digitalWrite( ENGATE2 , 1); // To be updated!
-  //SPI_init( SSPIN2 );  // Only for DRV8301.
+  SPI_init( SSPIN2 );  // Only for DRV8301.
 
   //DRV8302_init( SSPIN2 , 13 ); // Note: pin 13 is also the SCLK pin for communication with DRV8301 and the LED.
   xbar_init();
@@ -87,6 +88,9 @@ void setup() {
 
   delay(1);
   changePWM();
+
+  Serial.begin(1);
+
   motor.state.setupready = 1;
 }
 
@@ -333,6 +337,22 @@ void Encoders_init() {
 //////////////////////////////////////////////////////////////////////////////////
 
 void loop() {
+  //Moved sending of names to a slow loop to avoid overloads
+  if (sendnames == true) {
+    for (uint32_t i = 0; i < sizeof(trace.all_pointers) / sizeof(trace.all_pointers[0]) ; i ++) {
+      if ( trace.names[i] == NULL) {
+        break;
+      }
+      Serial.println( trace.names[i] );
+      delayMicroseconds(200);
+      Serial.println( trace.all_types[i] );
+      delayMicroseconds(200);
+      Serial.println( trace.all_lengths[i] / signaltomemberlength(i) );
+      delayMicroseconds(200);
+    }
+    sendnames = false;
+  }
+  delay(1);
 }
 
 void adcetc0_isr() {
@@ -343,6 +363,9 @@ void adcetc1_isr() {
   ADC_ETC_DONE0_1_IRQ &= 1 << 20;   // clear
   motor.state.prevtime = motor.state.curtime;
   motor.state.curtime = micros();
+  if (motor.state.prevtime == 0) {
+    motor.state.prevtime = motor.state.curtime;
+  }
   if ((motor.state.curtime - motor.state.prevtime) > (motor.conf.Ts + 3)) {
     motor.state.overloadcounter += 1;
   }
@@ -671,7 +694,7 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
   }
 
-  LOWPASS( stateX->eradpers_lp , stateX->edeltarad / motor.conf.T , 0.005 ); //50 Hz when running at 60 kHz
+  LOWPASS( stateX->eradpers_lp , stateX->edeltarad * motor.conf.fs , 0.005 ); //50 Hz when running at 60 kHz
 
   stateX->erpm = stateX->eradpers_lp * 60 / (2 * M_PI);
   stateX->thetaParkPrev = stateX->thetaPark;
@@ -1018,7 +1041,16 @@ void communicationProcess() {
     static uint32_t i_total = 0;
     for ( uint32_t i = 0; i < 14; i++) {
       if (( trace.all_pointers[i_total] != NULL && i_total < sizeof(trace.all_pointers) / sizeof(trace.all_pointers[0]) )) {
-        Serial.write( trace.all_pointers[i_total] , trace.all_lengths[i_total]);
+
+        if ((uint32_t)Serial.availableForWrite() >= trace.all_lengths[i_total]) {
+          Serial.write( trace.all_pointers[i_total] , trace.all_lengths[i_total]);
+        }
+        else
+        {
+          trace.send_all = false;
+          error(100 , &motor.state1);
+          break;
+        }
         i_total++;
       }
       else {
@@ -1033,14 +1065,19 @@ void communicationProcess() {
   if ( trace.n_to_send > 0) {
     if ( motor.state.downsample < 1) {
       motor.state.downsample = motor.conf.Ndownsample;
+      trace.n_to_send--;
       for ( uint32_t i = 0; i < sizeof(trace.pointers) / sizeof(trace.pointers[0]) ; i++) {
         if ( trace.pointers[i] == NULL) {
           break;
         }
-        Serial.write( trace.pointers[i] , trace.lengths[i]);
-      }
-      if ( trace.n_to_send < 4294967294) {
-        trace.n_to_send--;
+        if ((uint32_t)Serial.availableForWrite() >= trace.lengths[i]) {
+          Serial.write( trace.pointers[i] , trace.lengths[i]);
+        }
+        else {
+          trace.n_to_send = 0;
+          error(101 , &motor.state1);
+          break;
+        }
       }
     }
     motor.state.downsample--;
@@ -1151,13 +1188,25 @@ void processSerialIn() {
         uint32_t signallength;
         Serial.readBytes( (char*)&signallength , 4);
         uint8_t memberlength = signaltomemberlength( isignal );
-        Serial.write( trace.all_pointers[isignal] + (signallocation * memberlength) , signallength );
+
+        if ((uint32_t)Serial.availableForWrite() >= signallength) {
+          Serial.write( trace.all_pointers[isignal] + (signallocation * memberlength) , signallength );
+        }
+        else {
+          error(102 , &motor.state1);
+        }
         break;
       }
     case 'G': //Get signal
       {
         Serial.readBytes( (char*)&isignal , 4);
-        Serial.write( trace.all_pointers[isignal] , trace.all_lengths[isignal]);
+
+        if ((uint32_t)Serial.availableForWrite() >= trace.all_lengths[isignal]) {
+          Serial.write( trace.all_pointers[isignal] , trace.all_lengths[isignal]);
+        }
+        else {
+          error(103 , &motor.state1);
+        }
         break;
       }
     case 's': //Set specific paramter(s) in array
@@ -1193,14 +1242,7 @@ void processSerialIn() {
       }
     case 'T':
       {
-        for (uint32_t i = 0; i < sizeof(trace.all_pointers) / sizeof(trace.all_pointers[0]) ; i ++) {
-          if ( trace.names[i] == NULL) {
-            break;
-          }
-          Serial.println( trace.names[i] );
-          Serial.println( trace.all_types[i] );
-          Serial.println( trace.all_lengths[i] / signaltomemberlength(i) );
-        }
+        sendnames = true;
         break;
       }
 

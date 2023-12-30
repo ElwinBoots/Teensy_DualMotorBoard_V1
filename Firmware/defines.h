@@ -13,7 +13,7 @@
 #define SQRT_TWO_THREE  0.81649658092
 #define SQRT3_by_2      0.86602540378
 
-#define F_PWM 30e3
+#define F_PWM 20e3
 #define CHOPPERPIN 33 //Digital output for chopper resistor
 #define DEBUGPIN 32
 #define ENGATE  34
@@ -282,6 +282,7 @@ typedef struct globalstate_t {
 typedef struct conf_t {
   float Ts; //Ts in microseconds
   float T; //Ts in seconds
+  float fs; //Sample rate in Hz
   float Busadc2Vbus;
   float V_Bus;
   unsigned int Ndownsample;

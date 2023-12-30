@@ -1,456 +1,41 @@
 import matplotlib.pyplot as plt
 import pandas as pd
-import serial
 import struct
 import numpy as np
 import time
-import os 
-os.chdir('C:\GIT\Teensy_DualMotorBoard_V1')
-import make3
 import control as ct
+import TeensyMotorControl as tc
+import pyqtgraph as pg
+
+# For graph and tree:
+from PyQt5.QtWidgets import QApplication, QGridLayout, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLineEdit, QSlider, QCompleter
+from PyQt5.QtCore import QObject, pyqtSignal, QEvent
+from PyQt5.QtCore import Qt
+import struct
+from pyqtgraph.parametertree import Parameter, ParameterTree
+from pyqtgraph.Qt import QtCore, QtWidgets
+from pyqtgraph.widgets.PlotWidget import PlotWidget
 
 pi = np.pi
 # plt.rcParams["figure.dpi"] = 200 #Use this with 4k screens
 plt.rcParams.update({"axes.grid": True})
 plt.rcParams.update({"legend.loc": 'upper left'})
-
-import motorclass
-import pyqtgraph as pg
-from PyQt5.QtWidgets import QApplication, QGridLayout, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLineEdit, QSlider, QCompleter
-from PyQt5.QtCore import QObject, pyqtSignal, QEvent
-from PyQt5.QtCore import Qt
-import struct
-
-from pyqtgraph.parametertree import Parameter, ParameterTree
-from pyqtgraph.Qt import QtCore, QtWidgets
-from pyqtgraph.widgets.PlotWidget import PlotWidget
-import numpy as np
-
 pg.setConfigOption('background', 'k')
 pg.setConfigOption('foreground', 'w')
 
-m = motorclass.Motor(  )
-motor = motorclass.MotorVariables( m )
-
-
-
-def bode(H, f, name='Data', title='bode plot'):
-    mag = np.abs(H)
-    phase = np.angle(H)
-    ax1 = plt.subplot(2, 1, 1)
-#    plt.loglog(f, mag)    # Bode magnitude plot
-    plt.semilogx(f, 20*np.log10(mag), label=name)    # Bode magnitude plot
-    plt.grid(1, 'both', 'both')
-    plt.ylabel('Magnitude [dB]')
-    plt.title(title)
-    plt.legend()
-#    ax1.xaxis.set_minor_formatter(ticker.ScalarFormatter())
-    ax2 = plt.subplot(2, 1, 2, sharex=ax1)
-    plt.plot(f, phase * 180 / np.pi)  # Bode phase plot
-    plt.grid(1, 'both')
-    plt.xlabel('Frequency [Hz]')
-    plt.ylabel('Phase [deg]')
-    plt.ylim(-180, 180)
-    # ax2.yaxis.set_major_locator(plt.LinearLocator(5))
-    ax2.yaxis.set_major_locator(plt.MaxNLocator(5, steps=[1,2,2.5,5,9,10]))
-    plt.tight_layout()
-    plt.show()
-
-
-def nyquist( H ,f  , name = '' , title = 'nyquist plot'):
-    plt.plot( np.real( H ) , np.imag( H ) , label = name)    # Bode magnitude plot
-    tmp = 0.5 * np.exp( -1j * np.arange( 0 , 2*np.pi , 0.01) ) - 1
-    plt.plot( np.real( tmp ) , np.imag( tmp ) , label = '6 dB')    # Bode magnitude plot
-    plt.grid( 1 , 'both')
-    plt.title(title)
-    plt.legend()
-    plt.xlabel('Real')
-    plt.ylabel('Imaginary')
-    plt.xlim( -2 , 2)
-    plt.ylim( -2 , 2)
-    plt.tight_layout()
-    plt.show()
-
-
-def getFFTdf(df, Ndownsample, j0=int(1/m.Ts)):
-    #    j0 = int(1/m.Ts) # These amount of samples are ignored
-    L = 2047 * Ndownsample
-    Naver = int((len(df)-j0)/L)
-    # print( 'Naver =' , Naver )
-    SIGNAL = np.fft.fft(df.iloc[j0:j0+L*Naver], axis=0)
-
-    f = np.fft.fftfreq(L*Naver, m.Ts)
-    SIGNAL = SIGNAL[f > 0]
-    SIGNAL = 2*SIGNAL[Naver-1::Naver]
-    f = f[f > 0]
-    f = f[Naver-1::Naver]
-    SIGNAL = SIGNAL[f < 1/(2*m.Ts*Ndownsample)]
-    f = f[f < 1/(2*m.Ts*Ndownsample)]
-    dfout = pd.DataFrame(SIGNAL)
-    dfout.index = f
-    dfout.index.name = 'Frequency [Hz]'
-    dfout.columns = df.columns
-    if 'motor.state1.dist' in dfout:
-        dfout = dfout.div(dfout['motor.state1.dist'], axis=0)
-    if 'motor.state2.dist' in dfout:  
-        dfout = dfout.div(dfout['motor.state2.dist'], axis=0)
-    return dfout
-
-
-def getFFT(signal, Ndownsample, j0=int(1/m.Ts)):
-    #    j0 = int(1/m.Ts) # These amount of samples are ignored
-    L = 2047 * Ndownsample
-    Naver = int((len(signal)-j0)/L)
-    # print( 'Naver =' , Naver )
-    SIGNAL = np.fft.fft(signal[j0:j0+L*Naver], axis=0)
-    f = np.fft.fftfreq(L*Naver, m.Ts)
-    SIGNAL = SIGNAL[f > 0]
-    SIGNAL = 2*SIGNAL[Naver-1::Naver]
-    f = f[f > 0]
-    f = f[Naver-1::Naver]
-    SIGNAL = SIGNAL[f < 1/(2*m.Ts*Ndownsample)]
-    f = f[f < 1/(2*m.Ts*Ndownsample)]
-    return SIGNAL, f
-
-def prepSP(  p , v , a , j, axis=1):
-    t1, t2, t3, jd = make3.make3( p , v , a , j , m.Ts );
-    #double m.Tstart, double t1, double t2, double t3, double p, double v_max, double a_max, double j_max
-    if axis == 1:
-        m.ser.write( b'1' + struct.pack('f',  t1) + struct.pack('f',  t2) + struct.pack('f',  t3) + struct.pack('d',  p) + struct.pack('f',  v) + struct.pack('f',  a)  + struct.pack('f',  jd) )
-    else:
-        m.ser.write( b'2' + struct.pack('f',  t1) + struct.pack('f',  t2) + struct.pack('f',  t3) + struct.pack('d',  p) + struct.pack('f',  v) + struct.pack('f',  a)  + struct.pack('f',  jd) )
-    return t1, t2, t3, jd
-
-def setNotch( axis, index, f0, debth_db, width ):
-    if index < 8:
-        m.ser.write( b'N' + struct.pack('I',  axis) + struct.pack('I',  index) + struct.pack('f',  f0) + struct.pack('f',  debth_db) + struct.pack('f',  width) )
-
-def setLowpass( axis, index, f0, damping ):
-    if index < 8:
-        m.ser.write( b'L' + struct.pack('I',  axis) + struct.pack('I',  index) + struct.pack('f',  f0) + struct.pack('f',  damping) )
-
-
-def discrete_notch( f0, debth_db, width):
-    w0 = 2 * pi * f0 * m.Ts;
-    if (debth_db < 0):
-        alpha = width * np.sin(w0);
-        alpha1 = alpha * 10 **(debth_db / 20);
-    else: 
-        alpha = width * np.sin(w0) * 10 **(-debth_db / 20);
-        alpha1 = width * np.sin(w0);
-    b0 =   (1 + alpha1) / (1 + alpha);
-    b1 =  -2 * np.cos(w0) / (1 + alpha);
-    b2 =   (1 - alpha1) / (1 + alpha);
-    a0 = 1;
-    a1 =  -2 * np.cos(w0) / (1 + alpha);
-    a2 =   (1 - alpha) / (1 + alpha);
-    
-    return ct.TransferFunction( [b0, b1, b2] , [a0, a1, a2]  , float(m.Ts) )
-    
-def discrete_lowpass( f0, damping ):
-    w0 = 2 * pi * f0 * m.Ts;
-    alpha = np.sin(w0) * damping;
-    b0 = 0.5 * (1 - np.cos(w0)) / (1 + alpha) ;
-    b1 = 2 * b0;
-    b2 = b0 ;
-    a0 = 1;
-    a1 = (-2 * np.cos(w0)) / (1 + alpha);
-    a2 = (1 - alpha) / (1 + alpha);
-    return ct.TransferFunction( [b0, b1, b2] , [a0, a1, a2]  , float(m.Ts) )
-
-def vel( vel = 0 , motor = 0 ):
-    if type(vel) == list:
-        vel1 = vel[0]
-        vel2 = vel[1]
-    else:
-        vel1 = vel
-        vel2 = vel
-    if motor == 0 or motor == 1:
-        m.setpar('motor.state1.offsetVel' ,  vel1 )
-    if motor == 0 or motor == 2:
-        m.setpar('motor.state2.offsetVel' ,  vel2 )
-        
-def pos( target = 0 , motor = 0 , vel = 100 , acc = 1000):
-    if type(target) == list:
-        target1 = target[0]
-        target2 = target[1]
-    else:
-        target1 = target
-        target2 = target
-    if motor == 0 or motor == 1:
-        enc2rad1 = m.getsig('c1.enc2rad')
-        target1 = round(target1/360*2*pi/enc2rad1)*enc2rad1
-        delta = -m.getsig('motor.state1.rmech') + target1
-        if delta !=0:
-            prepSP( abs(delta) , vel , acc ,500000 , 1)
-            m.setpar('motor.state1.SPdir' , delta>0)
-            m.setpar('motor.state1.spNgo', 1)
-    if motor == 0 or motor == 2:
-        enc2rad2 = m.getsig('c2.enc2rad')
-        target2 = round(target2/360*2*pi/enc2rad2)*enc2rad2
-        delta = -m.getsig('motor.state2.rmech') + target2
-        if delta !=0:
-            prepSP( abs(delta) , vel , acc ,500000 , 2)
-            m.setpar('motor.state2.SPdir' , delta>0)
-            m.setpar('motor.state2.spNgo', 1)
-
-def pos_wait( target = 0 , motor = 0 , vel = 100 , acc = 1000):
-    pos( target , motor , vel , acc)
-    while (m.getsig('motor.state1.REFstatus') > 0  or m.getsig('motor.state2.REFstatus') > 0 ):
-      time.sleep(1e-3)
-
-def rel( rel = 0 , motor = 0 ):
-    if type(rel) == list:
-        rel1 = rel[0]
-        rel2 = rel[1]
-    else:
-        rel1 = rel
-        rel2 = rel
-    if motor == 0 or motor == 1:
-        enc2rad1 = m.getsig('c1.enc2rad')
-        delta = round(rel1/360*2*pi/enc2rad1)*enc2rad1
-        if delta !=0:
-            prepSP( abs(delta) , 100 , 1000 ,500000 , 1)
-            m.setpar('motor.state1.SPdir' , delta>0)
-            m.setpar('motor.state1.spNgo', 1)
-    if motor == 0 or motor == 2:
-        enc2rad2 = m.getsig('c2.enc2rad')
-        delta = round(rel2/360*2*pi/enc2rad2)*enc2rad2
-        if delta !=0:
-            prepSP( abs(delta) , 100 , 1000 ,500000 , 2)
-            m.setpar('motor.state2.SPdir' , delta>0)
-            m.setpar('motor.state2.spNgo', 1)
-        
-
-def CL_cur( f_bw = 2e3 , axis = 0 ):
-    f_lp = f_bw*4
-    f_lp_2nd = f_bw*8
-    f_lp_2nd_damp = 0.5
-    
-    if axis == 1 or axis == 0:
-      m.setpar('motor.conf1.Kp_iq', Lq * f_bw * 2 * pi)  # Current loop Kp
-      m.setpar('motor.conf1.Ki_iq', R/Lq)  # Current loop Ki
-      m.setpar('motor.conf1.Kp_id', Ld * f_bw * 2 * pi)  # Current loop Kp
-      m.setpar('motor.conf1.Ki_id', R/Ld)  # Current loop Ki
-      lowpass_c = 1-np.exp(-f_lp*2*pi*m.Ts)
-      m.setpar( 'motor.conf1.lowpass_Vd_c' , lowpass_c )
-      m.setpar( 'motor.conf1.lowpass_Vq_c' , lowpass_c )
-      
-      m.setpar('motor.conf1.I_max', 15)
-      m.setpar('motor.conf1.maxDutyCycle', 0.99)
-      
-      m.setpar('motor.conf1.enc_transmission' , 1)
-    
-      setLowpass( 1 , 4, f_lp_2nd, f_lp_2nd_damp )
-      setLowpass( 1 , 5, f_lp_2nd, f_lp_2nd_damp )
-    if axis == 2 or axis == 0:
-      m.setpar('motor.conf2.Kp_iq', Lq * f_bw * 2 * pi)  # Current loop Kp
-      m.setpar('motor.conf2.Ki_iq', R/Lq)  # Current loop Ki
-      m.setpar('motor.conf2.Kp_id', Ld * f_bw * 2 * pi)  # Current loop Kp
-      m.setpar('motor.conf2.Ki_id', R/Ld)  # Current loop Ki
-      lowpass_c = 1-np.exp(-f_lp*2*pi*m.Ts)
-      m.setpar( 'motor.conf2.lowpass_Vd_c' , lowpass_c )
-      m.setpar( 'motor.conf2.lowpass_Vq_c' , lowpass_c )
-      
-      m.setpar('motor.conf2.I_max', 15)
-      m.setpar('motor.conf2.maxDutyCycle', 0.99)
-      
-      m.setpar('motor.conf2.enc_transmission' , 1)
-      
-      setLowpass( 2 , 4, f_lp_2nd, f_lp_2nd_damp )
-      setLowpass( 2 , 5, f_lp_2nd, f_lp_2nd_damp )
-
-def CL( cont = 2 , axis = 0 , J = 7.5e-5):
-  
-    if axis == 1 or axis == 0:
-      m.setpar('c1.maxerror',0.5)
-      # CONF1
-      setLowpass( 1 , 0, 4000, 0.7 )
-      setLowpass( 1 , 1, 0, 0.3 )
-      setLowpass( 1 , 2, 0, 0.3 )
-      setLowpass( 1 , 3, 0, 0.3 )
-      # setNotch( 1 , 1, 590, -20, 0.1 )
-    
-    if axis == 2 or axis == 0:
-      m.setpar('c2.maxerror',0.5)
-      # CONF2
-      setLowpass( 2 , 0, 4000, 0.7 )
-      setLowpass( 2 , 1, 0, 0.3 )
-      setLowpass( 2 , 2, 0, 0.3 )
-      setLowpass( 2 , 3, 0, 0.3 )
-      # setNotch( 2 , 1, 590, -20, 0.1 )
-    
-    if cont == 0:
-        BW = 0
-        alpha_i = 0 
-        alpha_1 = 3
-        alpha_2 = 3
-    elif cont == 1:
-        BW = 10
-        alpha_i = 0
-        alpha_1 = 3
-        alpha_2 = 3
-        if axis == 1 or axis == 0:
-          m.setpar('c1.maxerror',pi)
-          setLowpass( 1 , 0, 150, 0.6 )
-        if axis == 2 or axis == 0:
-          m.setpar('c2.maxerror',pi)
-          setLowpass( 2 , 0, 150, 0.6 )  
-
-    elif cont == 2:
-        BW = 50
-        alpha_i =6
-        alpha_1 = 3
-        alpha_2 = 10
-    elif cont == 3:
-        BW = 200
-        alpha_i = 6
-        alpha_1 = 3.5
-        alpha_2 = 5
-        if axis == 1 or axis == 0:
-          setNotch( 1 , 1, 590, -20, 0.1 )
-        if axis == 2 or axis == 0:
-          setNotch( 2 , 1, 590, -20, 0.1 )
-    elif cont == 4:
-        BW = 200
-        alpha_i = 2.5
-        alpha_1 = 2.5
-        alpha_2 = 20
-    elif cont == 5:
-        BW = 250
-        alpha_i = 2.5
-        alpha_1 = 2.5
-        alpha_2 = 20
-        
-
-    elif cont == 6:
-        BW = 250
-        alpha_i = 2.5
-        alpha_1 = 2.5
-        alpha_2 = 7
-        if axis == 1 or axis == 0:
-          setLowpass( 1 , 1, 8000, 0.4 )
-        if axis == 2 or axis == 0:
-          setLowpass( 2 , 1, 8000, 0.4 )
-          
-    elif cont == 7:
-        BW = 20
-        alpha_i = 6
-        alpha_1 = 3
-        alpha_2 = 3
-        if axis == 1 or axis == 0:
-          setLowpass( 1 , 0, 150, 0.6 )
-        if axis == 2 or axis == 0:
-          setLowpass( 2 , 0, 150, 0.6 )  
-        
-    else:
-        BW = 50
-        alpha_i = 6
-        alpha_1 = 3
-        alpha_2 = 10
-        
-    
-    gain_at_BW = J * (BW*2*pi)**2
-    
-    if BW > 0:
-        if alpha_i > 0:
-            Ki = BW*2*pi*m.Ts/alpha_i
-        else:
-            Ki = 0
-        if alpha_1 > 0:
-            Kd = alpha_1/(m.Ts*BW*2*pi)
-        else:
-            Kd = 0
-        if alpha_2 > 0:
-            lowpass_c = 1-np.exp(-BW*2*pi*alpha_2*m.Ts)
-        else:
-            lowpass_c =1
-        Kp = gain_at_BW * abs(lowpass_c + np.exp(pi*BW*m.Ts*2j) - 1) / (abs(lowpass_c*((Ki*np.exp(pi*BW*m.Ts*2j)) / (np.exp(pi*BW*m.Ts*2j) - 1) + 1) * (Kd - Kd*np.exp(-pi*BW*m.Ts*2j) + 1) )) 
-    else:
-        Kp = 0
-        Ki = 0
-        Kd = 0
-        lowpass_c = 1
-  
-    m.setpar( 'motor.conf1.Command' , 2 ) #Reset error
-
-    if axis == 1 or axis == 0:
-      m.setpar( 'motor.conf1.Kp_prep' , Kp )
-      m.setpar( 'motor.conf1.Ki_prep' , Ki )
-      m.setpar( 'motor.conf1.Kd_prep' , Kd )
-      m.setpar( 'motor.conf1.lowpass_c_prep' , lowpass_c )
-      
-      
-      m.setpar( 'motor.conf1.Command' , 1 ) #Activate controller
-      m.setpar('motor.state1.Jload' , J)
-
-    # CONF2
-    #J = 3.25e-5
-    gain_at_BW = J * (BW*2*pi)**2
-    # alpha_i = 6
-    # alpha_1 = 3
-    # alpha_2 = 3
-    
-    if BW > 0:
-        if alpha_i > 0:
-            Ki = BW*2*pi*m.Ts/alpha_i
-        else:
-            Ki = 0
-        if alpha_1 > 0:
-            Kd = alpha_1/(m.Ts*BW*2*pi)
-        else:
-            Kd = 0
-        if alpha_2 > 0:
-            lowpass_c = 1-np.exp(-BW*2*pi*alpha_2*m.Ts)
-        else:
-            lowpass_c =1
-        Kp = gain_at_BW * abs(lowpass_c + np.exp(pi*BW*m.Ts*2j) - 1) / (abs(lowpass_c*((Ki*np.exp(pi*BW*m.Ts*2j)) / (np.exp(pi*BW*m.Ts*2j) - 1) + 1) * (Kd - Kd*np.exp(-pi*BW*m.Ts*2j) + 1) )) 
-    else:
-        Kp = 0
-        Ki = 0
-        Kd = 0
-        lowpass_c = 1
-        
-    if axis == 2 or axis == 0:
-      m.setpar( 'motor.conf2.Kp_prep' , Kp )
-      m.setpar( 'motor.conf2.Ki_prep' , Ki )
-      m.setpar( 'motor.conf2.Kd_prep' , Kd )
-      m.setpar( 'motor.conf2.lowpass_c_prep' , lowpass_c )
-      
-      m.setpar( 'motor.conf2.Command' , 1 ) #Activate controller     
-      m.setpar('motor.state2.Jload' , J)
-    
-def fftpsd( signal , name = '' , Ts=m.Ts ):
-    L = len(signal)
-    SIGNAL = np.fft.fft( signal , axis = 0) / L
-    f  = np.fft.fftfreq(L, m.Ts)
-    SIGNAL = 2 * SIGNAL[f>0] 
-    f = f[f>0]   
-
-    ax1 = plt.subplot(2,1,1)
-    plt.loglog( f , abs(SIGNAL)**2 /m.Ts )
-    plt.grid( 1 , 'both' , 'both')
-    plt.ylabel('PSD [-²/Hz]')
-    # plt.title(title)
-    plt.legend()
-    ax2 = plt.subplot(2,1,2, sharex=ax1)
-    plt.semilogx( f , np.cumsum(abs(SIGNAL)**2 /m.Ts) *m.Ts )
-    plt.grid( 1 , 'both')
-    plt.xlabel('Frequency [Hz]')
-    plt.ylabel('CPS [-²]')
-    plt.tight_layout()
-    plt.show()   
-    return SIGNAL, f
+m = tc.Motor(  )
+motor = tc.MotorVariables( m )
 
 z = ct.TransferFunction( [1, 0] , [1] , float(m.Ts))
 
+# Run code till here, and you will have the m and motor objects to work with 
 
 # %%
 Lq = 250e-6
 Ld = 210e-6
 R = 0.33
 
-CL_cur( 0 )
+m.CL_cur( 0 )
 motor.conf1.ridethewave = 1
 motor.conf2.ridethewave = 1
 time.sleep(0.5)
@@ -652,7 +237,7 @@ m.setpar( 'motor.conf1.lowpass_Vq_c' , lowpass_c )
 
 m.setpar('motor.conf1.anglechoice', 1)
 
-m.setpar('motor.state1.Iq_offset_SP', 10)
+m.setpar('motor.state1.Iq_offset_SP', 5)
 
 m.setpar('motor.state1.Iq_offset_SP', 1.5)
 time.sleep(0.5)
@@ -660,17 +245,26 @@ m.setpar('motor.state1.Iq_offset_SP', 0)
 
 
 # %% Enable hfi 1
+Ld = 19e-6
+Lq = 34e-6
+R = 0.035
+m.setpar('motor.conf1.Lambda_m', 0.005405)
+m.setpar('motor.conf1.N_pp',  7)
+m.setpar('motor.conf1.Lq', Lq)
+m.setpar('motor.conf1.Ld', Ld)
+m.setpar('motor.state1.R', R)
+
+m.CL_cur( 2e3 , 1)
+
 m.setpar('s1.Id_offset_SP', 5)
 time.sleep(0.5)
 m.setpar('s1.Id_offset_SP', 0)
 
-
 m.setpar('s1.hfi_use_lowpass', 1)
-
 m.setpar('s1.hfi_method', 1)
 
-Ki = 2000*2*pi
-hfi_v = 6
+Ki = 500*2*pi
+hfi_v = 3
 
 m.setpar('s1.hfi_maxvel', 1e6)
 m.setpar('s1.hfi_gain', Ki)
@@ -679,6 +273,11 @@ m.setpar('s1.hfi_V', hfi_v)
 m.setpar('s1.hfi_on', 1)
 m.setpar('c1.anglechoice', 3)
 
+#%%  
+m.setpar( 's1.hfi_useforfeedback' , 1)
+
+# m.CL( 1, 1, J=0.00021)
+m.CL( 7, 1, J=0.00021)
 
 # %% Enable hfi 2
 Ld = 19e-6
@@ -690,7 +289,7 @@ m.setpar('motor.conf2.Lq', Lq)
 m.setpar('motor.conf2.Ld', Ld)
 m.setpar('motor.state2.R', R)
 
-CL_cur( 2e3 , 2)
+m.CL_cur( 2e3 , 2)
 
 m.setpar('s2.Id_offset_SP', 5)
 time.sleep(0.5)
@@ -698,7 +297,6 @@ m.setpar('s2.Id_offset_SP', 0)
 
 
 m.setpar('s2.hfi_use_lowpass', 1)
-
 m.setpar('s2.hfi_method', 1)
 
 Ki = 500*2*pi
@@ -714,7 +312,9 @@ m.setpar('c2.anglechoice', 3)
 #%%  
 m.setpar( 's2.hfi_useforfeedback' , 1)
 
-CL( 7, 2, J=0.000316)
+# m.CL( 1, 2, J=0.000316)
+m.CL( 7, 2, J=0.000316)
+
 
 # %%
 signals = m.setTrace(['motor.state1.ia', 'motor.state1.ib', 'motor.state1.ic'])
@@ -1064,7 +664,7 @@ m.setpar('motor.conf.NdownsamplePRBS', 1)  # Downsampling
 
 m.setpar('motor.state1.offsetVel' ,  0 )
 
-dfout = getFFTdf(df, NdownsamplePRBS , Nwait*NdownsamplePRBS*2047 )
+dfout = m.getFFTdf(df, NdownsamplePRBS , Nwait*NdownsamplePRBS*2047 )
 f = dfout.index.values
 
 S = dfout['motor.state1.mechcontout']
@@ -1073,19 +673,19 @@ P = PS / S
 OL = 1/S - 1
 
 plt.figure(1)
-bode( OL , f, 'Measured Open Loop')
+m.bode( OL , f, 'Measured Open Loop')
 
 plt.figure(2)
-nyquist( OL , f, 'Measured Open Loop')
+m.nyquist( OL , f, 'Measured Open Loop')
 
 plt.figure(3)
-bode( P , f, 'Measured Plant')
+m.bode( P , f, 'Measured Plant')
 
 plt.figure(4)
-bode( 1/(P * (2*pi*f)**2) , f, 'Measured inertia')
+m.bode( 1/(P * (2*pi*f)**2) , f, 'Measured inertia')
 
 plt.figure(5)
-bode( OL / P , f, 'Measured C')
+m.bode( OL / P , f, 'Measured C')
 
 # %% set Lowpass and Notches 2
 setLowpass( 2 , 0, 1200, 0.7 )
@@ -1905,8 +1505,8 @@ pos_wait([180,0] , vel=v, acc = a)
 
 
 #%% 165 kv
-v = 300
-a = 2000
+v = 100
+a = 1000
 
-pos_wait( [ 0 , 360 ] , vel=v , acc = a)
-pos_wait( [ 0 , 0 ] , vel=v , acc = a)
+m.pos_wait( [ -360 , 360 ] , vel=v , acc = a)
+m.pos_wait( [ 0 , 0 ] , vel=v , acc = a)
