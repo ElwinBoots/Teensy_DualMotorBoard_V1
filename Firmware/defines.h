@@ -222,7 +222,7 @@ typedef struct mot_state_t {
   float delta_id;
   float delta_iq;
   bool hfi_firstcycle;
-  float hfi_abs_pos;
+  double hfi_abs_pos;
   bool hfi_useforfeedback;
   bool hfi_use_lowpass;
   float hfi_prev;

@@ -19,7 +19,7 @@ from pyqtgraph.widgets.PlotWidget import PlotWidget
 pi = np.pi
 # plt.rcParams["figure.dpi"] = 200 #Use this with 4k screens
 plt.rcParams.update({"axes.grid": True})
-plt.rcParams.update({"legend.loc": 'upper left'})
+plt.rcParams.update({"legend.loc": 'upper right'})
 pg.setConfigOption('background', 'k')
 pg.setConfigOption('foreground', 'w')
 
@@ -39,7 +39,6 @@ m.CL_cur( 0 )
 motor.conf1.ridethewave = 1
 motor.conf2.ridethewave = 1
 time.sleep(0.5)
-
 motor.conf1.commutationoffset = 0
 motor.conf2.commutationoffset = 0
 
@@ -278,6 +277,9 @@ m.setpar( 's1.hfi_useforfeedback' , 1)
 
 # m.CL( 1, 1, J=0.00021)
 m.CL( 7, 1, J=0.00021)
+# m.CL( 8, 1, J=0.00021)
+# m.CL( 9, 1, J=0.00021)
+# m.CL( 10, 1, J=0.00021)
 
 # %% Enable hfi 2
 Ld = 19e-6
@@ -312,8 +314,10 @@ m.setpar('c2.anglechoice', 3)
 #%%  
 m.setpar( 's2.hfi_useforfeedback' , 1)
 
-# m.CL( 1, 2, J=0.000316)
-m.CL( 7, 2, J=0.000316)
+# m.CL( 1, 2, J=0.00025)
+m.CL( 7, 2, J=0.00025)
+# m.CL( 8, 2, J=0.00025)
+# m.CL( 9, 2, J=0.00025)
 
 
 # %%
@@ -481,7 +485,7 @@ m.setpar('motor.state1.distval', 0)  # disturbance amplitude
 m.setpar('motor.state1.distoff', 0)  # disturbance offset
 m.setpar('motor.conf.NdownsamplePRBS', 1)  # Downsampling
 
-dfout = getFFTdf(df, NdownsamplePRBS , 10*2047 )
+dfout = m.getFFTdf(df, NdownsamplePRBS , 10*2047 )
 f = dfout.index.values
 Pd = dfout['motor.state1.Id_meas'].values / dfout['motor.state1.Vd'].values
 Pq = dfout['motor.state1.Iq_meas'].values / dfout['motor.state1.Vq'].values
@@ -512,7 +516,7 @@ m.setpar('motor.state2.distval', 0)  # disturbance amplitude
 m.setpar('motor.state2.distoff', 0)  # disturbance offset
 m.setpar('motor.conf.NdownsamplePRBS', 1)  # Downsampling
 
-dfout = getFFTdf(df, NdownsamplePRBS , 10*2047 )
+dfout = m.getFFTdf(df, NdownsamplePRBS , 10*2047 )
 f = dfout.index.values
 Pd = dfout['motor.state2.Id_meas'].values / dfout['motor.state2.Vd'].values
 Pq = dfout['motor.state2.Iq_meas'].values / dfout['motor.state2.Vq'].values
@@ -521,21 +525,21 @@ Sq = dfout['motor.state2.Vq'].values
 
 # %% Current loop plots
 plt.figure(1)
-bode( Pd , f, 'Measured D axis plant')
-bode( Pq , f, 'Measured Q axis plant')
+m.bode( Pd , f, 'Measured D axis plant')
+m.bode( Pq , f, 'Measured Q axis plant')
 
 plt.figure(2)
-bode( 1 / Sd - 1 , f, 'Open loop D')
-bode( 1 / Sq - 1 , f, 'Open loop Q')
+m.bode( 1 / Sd - 1 , f, 'Open loop D')
+m.bode( 1 / Sq - 1 , f, 'Open loop Q')
 
 plt.figure(6)
-bode( (1 / Sd - 1)/Pd , f, 'Controller D')
-bode( (1 / Sq - 1)/Pq , f, 'Controller Q')
+m.bode( (1 / Sd - 1)/Pd , f, 'Controller D')
+m.bode( (1 / Sq - 1)/Pq , f, 'Controller Q')
 
 
 plt.figure(3)
-nyquist( 1 / Sd - 1 , f, 'Open loop D')
-nyquist( 1 / Sq - 1 , f, 'Open loop Q')
+m.nyquist( 1 / Sd - 1 , f, 'Open loop D')
+m.nyquist( 1 / Sq - 1 , f, 'Open loop Q')
 
 plt.figure(4)
 plt.plot(
@@ -554,6 +558,9 @@ plt.xlim([1e3, 10e3])
 # plt.ylim([ 100 , 300])
 plt.title('Lq [uH]')
 
+plt.figure(6)
+m.bode( 1 - Sd , f, 'Closed loop D')
+m.bode( 1 - Sq , f, 'Closed loop Q')
 
 # %% Open loop identification
 NdownsamplePRBS = 10
@@ -634,10 +641,10 @@ setNotch( 1 , 2, 590, -20, 0.1 )
 setNotch( 1 , 3, 700, 0, 0.1 )
 
 # %% Closed loop identification 1
-m.setpar('motor.state1.offsetVel' ,  100 )
+m.setpar('motor.state1.offsetVel' ,  250 )
 
-NdownsamplePRBS = 10
-Naver = 10
+NdownsamplePRBS = 20
+Naver = 20
 Nwait = 5
 N = (Nwait+Naver)*NdownsamplePRBS*2047
 
@@ -646,7 +653,7 @@ signals = ['motor.state1.Id_meas', 'motor.state1.Iq_meas',
 m.setTrace(signals )
 
 
-gain = 0.10
+gain = 0.5
 m.setpar('motor.state1.Vq_distgain', 0)
 m.setpar('motor.state1.Vd_distgain', 0)
 m.setpar('motor.state1.Iq_distgain', 0)
@@ -706,7 +713,7 @@ signals = ['motor.state2.Id_meas', 'motor.state2.Iq_meas',
 m.setTrace(signals )
 
 
-gain = 0.1
+gain = 0.2
 m.setpar('motor.state2.Vq_distgain', 0)
 m.setpar('motor.state2.Vd_distgain', 0)
 m.setpar('motor.state2.Iq_distgain', 0)
@@ -723,7 +730,7 @@ m.setpar('motor.conf.NdownsamplePRBS', 1)  # Downsampling
 
 m.setpar('motor.state2.offsetVel' ,  0 )
 
-dfout = getFFTdf(df, NdownsamplePRBS , Nwait*NdownsamplePRBS*2047 )
+dfout = m.getFFTdf(df, NdownsamplePRBS , Nwait*NdownsamplePRBS*2047 )
 f = dfout.index.values
 
 S = dfout['motor.state2.mechcontout']
@@ -732,19 +739,19 @@ P = PS / S
 OL = 1/S - 1
 
 plt.figure(1)
-bode( OL , f, 'Measured Open Loop')
+m.bode( OL , f, 'Measured Open Loop')
 
 plt.figure(2)
-nyquist( OL , f, 'Measured Open Loop')
+m.nyquist( OL , f, 'Measured Open Loop')
 
 plt.figure(3)
-bode( P , f, 'Measured Plant')
+m.bode( P , f, 'Measured Plant')
 
 plt.figure(4)
-bode( 1/(P * (2*pi*f)**2) , f, 'Measured inertia')
+m.bode( 1/(P * (2*pi*f)**2) , f, 'Measured inertia')
 
 plt.figure(5)
-bode( OL / P , f, 'Measured C')
+m.bode( OL / P , f, 'Measured C')
 
 
 # %% Detect Lambda_m
@@ -1399,17 +1406,17 @@ bode( Pq * C / (1 + Pq * C ) , f )
 # C3 = 1
 # C4 = 1
 
-BW = 250
-J = 7.5e-5
-gain_at_BW = J * (BW*2*pi)**2
-alpha_i = 2.5
-alpha_1 = 2.5
-alpha_2 = 7
-C1 = discrete_lowpass( 4000, 0.4 )
-C2 = discrete_lowpass( 8000, 0.4 )
-# C2 = #discrete_notch( 590, -20, 0.1) 
-C3 = 1
-C4 = 1
+# BW = 250
+# J = 7.5e-5
+# gain_at_BW = J * (BW*2*pi)**2
+# alpha_i = 2.5
+# alpha_1 = 2.5
+# alpha_2 = 7
+# C1 = discrete_lowpass( 4000, 0.4 )
+# C2 = discrete_lowpass( 8000, 0.4 )
+# # C2 = #discrete_notch( 590, -20, 0.1) 
+# C3 = 1
+# C4 = 1
 
 # BW = 150
 # J = 7.5e-5
@@ -1422,6 +1429,19 @@ C4 = 1
 # # C2 = #discrete_notch( 590, -20, 0.1) 
 # C3 = 1
 # C4 = 1
+
+BW = 40
+J = 0.000211348903
+gain_at_BW = J * (BW*2*pi)**2
+alpha_i = 6
+alpha_1 = 3
+alpha_2 = 3
+C1 = m.discrete_lowpass( 240, 0.6 )
+C2 = 1
+# C2 = #discrete_notch( 590, -20, 0.1) 
+C3 = 1
+C4 = 1
+
 
 
 if BW > 0:
@@ -1451,10 +1471,10 @@ C.index = f
 C.index.name = 'Frequency [Hz]'
 
 plt.figure(1)
-bode( P * C , f )
+m.bode( P * C , f )
 
 plt.figure(2)
-nyquist( P * C , f )
+m.nyquist( P * C , f )
 
 
 #%% 
@@ -1483,24 +1503,25 @@ m.setpar('s.sens4_calib'  , 1.65 )
 
 
 #%% 
-pos_wait([180,0])
+m.pos_wait([180,0])
 #%% 
 
 v = 150
 a = 5000
-pos_wait([0,180] , vel=v , acc = a)
-pos_wait([180,0], vel=v , acc = a)
-pos_wait([-90,90], vel=v , acc = a)
-pos_wait([-270,-90] , vel=v, acc = a)
-pos_wait([0,180] , vel=v, acc = a)
-pos_wait([180,0], vel=v, acc = a)
-pos_wait([-90,90], vel=v, acc = a)
-pos_wait([-270,-90] , vel=v, acc = a)
-pos_wait([-180,0] , vel=v, acc = a)
-pos_wait([0,-180], vel=v, acc = a)
-pos_wait([90,-90], vel=v, acc = a)
-pos_wait([-90,-270] , vel=v, acc = a)
-pos_wait([180,0] , vel=v, acc = a)
+
+m.pos_wait([0,180] , vel=v , acc = a)
+m.pos_wait([180,0], vel=v , acc = a)
+m.pos_wait([-90,90], vel=v , acc = a)
+m.pos_wait([-270,-90] , vel=v, acc = a)
+m.pos_wait([0,180] , vel=v, acc = a)
+m.pos_wait([180,0], vel=v, acc = a)
+m.pos_wait([-90,90], vel=v, acc = a)
+m.pos_wait([-270,-90] , vel=v, acc = a)
+m.pos_wait([-180,0] , vel=v, acc = a)
+m.pos_wait([0,-180], vel=v, acc = a)
+m.pos_wait([90,-90], vel=v, acc = a)
+m.pos_wait([-90,-270] , vel=v, acc = a)
+m.pos_wait([180,0] , vel=v, acc = a)
 
 
 
@@ -1508,5 +1529,103 @@ pos_wait([180,0] , vel=v, acc = a)
 v = 100
 a = 1000
 
-m.pos_wait( [ -360 , 360 ] , vel=v , acc = a)
+m.pos_wait( [ 360 , 360 ] , vel=v , acc = a)
 m.pos_wait( [ 0 , 0 ] , vel=v , acc = a)
+
+
+#%% Relative setpoints with trace
+# time.sleep(10)
+
+v = 200
+a = 2000
+# a = 2000 #Only motor 1
+
+motor.state1.Jload = 0.000195
+
+m.setpar('motor.state1.velFF' , 0.00055)
+m.setpar('motor.state2.velFF' , 0.00055)
+
+m.setTrace([ 'motor.state1.rmech' , 'motor.state1.ymech' , 'motor.state1.emech' , 'motor.state1.Vd', 'motor.state1.Vq', 'motor.state1.Iq_SP','motor.state2.Iq_SP','motor.state1.Iq_meas', 'motor.state1.Id_meas', 'motor.state1.hfi_abs_pos', 'motor.state1.hfi_curangleest','motor.state1.mechcontout' ,'motor.state2.mechcontout' ,'motor.state1.T_FF_acc' ,'motor.state1.T_FF_vel','motor.state2.T_FF_acc' ,'motor.state2.T_FF_vel'  ,'motor.state.sensBus' ])
+
+m.tracebg(  )
+
+# time.sleep(0.1)
+
+m.rel( [ 360 , 360 ] , vel=v , acc = a)
+time.sleep(0.1)
+m.rel( [ -360 , -360] , vel=v , acc = a)
+time.sleep(0.1)
+m.rel( [ 360 , 360 ] , vel=v , acc = a)
+time.sleep(0.1)
+m.rel( [ -360 , -360 ] , vel=v , acc = a)
+time.sleep(0.1)
+m.rel( [ 360 , 360 ] , vel=v , acc = a)
+time.sleep(0.1)
+m.rel( [ -360 , -360] , vel=v , acc = a)
+time.sleep(0.1)
+m.rel( [ 360 , 360 ] , vel=v , acc = a)
+time.sleep(0.1)
+m.rel( [ -360 , -360 ] , vel=v , acc = a)
+time.sleep(0.1)
+m.rel( [ 360 , 360 ] , vel=v , acc = a)
+time.sleep(0.1)
+m.rel( [ -360 , -360] , vel=v , acc = a)
+time.sleep(0.1)
+m.rel( [ 360 , 360 ] , vel=v , acc = a)
+time.sleep(0.1)
+m.rel( [ -360 , -360 ] , vel=v , acc = a)
+time.sleep(0.1)
+
+# time.sleep(0.1)
+
+df = m.stoptracegetdata()
+
+# df.filter(regex='sens').plot()
+
+
+df.filter(regex='state1..me|state1.me').plot()
+
+
+# df.filter(regex='emech').plot()
+
+# df.filter(regex='T_FF').plot()
+
+# df.filter(regex='state1.Iq').plot()
+# df.filter(regex='state1.Id').plot()
+
+
+
+# df['motor.state1.mechcontout'].plot()
+# (df['motor.state1.T_FF_acc']+df['motor.state1.T_FF_vel']).plot()
+# (df['motor.state2.T_FF_acc']+df['motor.state2.T_FF_vel']).plot()
+
+
+# df.filter(regex='Iq_SP').plot()
+
+
+#%% Open loop vector rotation
+Ld = 19e-6
+Lq = 34e-6
+R = 0.035
+m.setpar('motor.conf1.Lambda_m', 0.005405)
+m.setpar('motor.conf1.N_pp',  7)
+m.setpar('motor.conf1.Lq', Lq)
+m.setpar('motor.conf1.Ld', Ld)
+m.setpar('motor.state1.R', R)
+
+m.CL_cur( 1e3 , 1)
+
+m.setpar('motor.conf1.anglechoice', 99)
+m.setpar('motor.state1.Id_offset_SP', 5)
+m.setpar('motor.state1.i_vector_acc', 1e8)
+m.setpar('motor.state1.i_vector_radpers', 2*pi)
+
+
+
+m.setTrace([ 'motor.state1.Valpha' , 'motor.state1.Vbeta' ,  'motor.state1.Va',  'motor.state1.Vb' ,  'motor.state1.Vc' ,  'motor.state1.Ialpha' , 'motor.state1.Ibeta' ,  'motor.state1.ia'  ,  'motor.state1.ib' ,  'motor.state1.ic'  ])
+
+
+df = m.trace( 1 )
+
+
+df.plot()

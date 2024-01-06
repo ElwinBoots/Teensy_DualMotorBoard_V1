@@ -13,7 +13,11 @@ m = tc.Motor(  )
 motor = tc.MotorVariables( m )
 
 
-m.setTrace([ 'motor.state1.thetawave' , 'motor.state.curtime' , 'motor.state1.emech' , 'motor.state1.rmech' , 'motor.state1.ymech' , 'motor.state1.Vd', 'motor.state1.Vq', 'motor.state1.Iq_meas', 'motor.state1.Id_meas'])
+
+
+
+
+m.setTrace([ 'motor.state1.thetawave' , 'motor.state.curtime' , 'motor.state1.emech' , 'motor.state1.rmech' , 'motor.state1.ymech' , 'motor.state1.Vd', 'motor.state1.Vq', 'motor.state1.Iq_meas', 'motor.state1.Id_meas', 'motor.state1.hfi_abs_pos', 'motor.state1.hfi_curangleest'])
 
 m.tracebg( )
 
@@ -30,6 +34,9 @@ df = m.stoptracegetdata()
 
 df['motor.state1.thetawave'].plot()
 
+
+
+
 df['motor.state.curtime'].diff().plot()
 
 
@@ -39,6 +46,13 @@ df['motor.state1.Vd'].plot()
 df['motor.state1.Vq'].plot()
 df['motor.state1.Id_meas'].plot()
 df['motor.state1.Iq_meas'].plot()
+
+df['motor.state1.rmech'].plot()
+df['motor.state1.ymech'].plot()
+df['motor.state1.hfi_abs_pos'].plot()
+
+
+
 
 t = time.time()
 m.setTrace(range(50))

@@ -37,8 +37,11 @@ class Motor:
 
     self.ser.write(b'T')
     buffer = []
+    tstart = time.time()
     while len(buffer) == 0:
       buffer = self.ser.readlines()
+      if (time.time() - tstart > 2):
+        raise Exception('No response received. Is the firmware running on the Teensy? Are the DRV8301 boards powered?')
 
     types = [np.dtype('int8'), np.dtype('uint8'), np.dtype('int16'), np.dtype('uint16'), np.dtype(
         'int32'), np.dtype('uint32'), np.dtype('int64'), np.dtype('uint64'), np.dtype('float32'), np.dtype('float64')]
@@ -291,6 +294,7 @@ class Motor:
       plt.ylabel('Magnitude [dB]')
       plt.title(title)
       plt.legend()
+
   #    ax1.xaxis.set_minor_formatter(ticker.ScalarFormatter())
       ax2 = plt.subplot(2, 1, 2, sharex=ax1)
       plt.plot(f, phase * 180 / np.pi)  # Bode phase plot
@@ -366,7 +370,8 @@ class Motor:
           self.ser.write( b'1' + struct.pack('f',  t1) + struct.pack('f',  t2) + struct.pack('f',  t3) + struct.pack('d',  p) + struct.pack('f',  v) + struct.pack('f',  a)  + struct.pack('f',  jd) )
       else:
           self.ser.write( b'2' + struct.pack('f',  t1) + struct.pack('f',  t2) + struct.pack('f',  t3) + struct.pack('d',  p) + struct.pack('f',  v) + struct.pack('f',  a)  + struct.pack('f',  jd) )
-      return t1, t2, t3, jd
+      ttot = 4*t1 + 2*t2 + t3
+      return t1, t2, t3, jd, ttot
   
   def setNotch( self, axis, index, f0, debth_db, width ):
       if index < 8:
@@ -417,7 +422,7 @@ class Motor:
       if motor == 0 or motor == 2:
           self.setpar('motor.state2.offsetVel' ,  vel2 )
           
-  def pos( self, target = 0 , motor = 0 , vel = 100 , acc = 1000):
+  def pos( self, target = 0 , motor = 0 , vel = 100 , acc = 1000, jerk = 500000):
       if type(target) == list:
           target1 = target[0]
           target2 = target[1]
@@ -429,7 +434,7 @@ class Motor:
           target1 = round(target1/360*2*np.pi/enc2rad1)*enc2rad1
           delta = -self.getsig('motor.state1.rmech') + target1
           if delta !=0:
-              self.prepSP( abs(delta) , vel , acc ,500000 , 1)
+              self.prepSP( abs(delta) , vel , acc ,jerk , 1)
               self.setpar('motor.state1.SPdir' , delta>0)
               self.setpar('motor.state1.spNgo', 1)
       if motor == 0 or motor == 2:
@@ -437,7 +442,7 @@ class Motor:
           target2 = round(target2/360*2*np.pi/enc2rad2)*enc2rad2
           delta = -self.getsig('motor.state2.rmech') + target2
           if delta !=0:
-              self.prepSP( abs(delta) , vel , acc ,500000 , 2)
+              self.prepSP( abs(delta) , vel , acc ,jerk , 2)
               self.setpar('motor.state2.SPdir' , delta>0)
               self.setpar('motor.state2.spNgo', 1)
   
@@ -446,28 +451,35 @@ class Motor:
       while (self.getsig('motor.state1.REFstatus') > 0  or self.getsig('motor.state2.REFstatus') > 0 ):
         time.sleep(1e-3)
   
-  def rel( self, rel = 0 , motor = 0 ):
+  def rel( self, rel = 0 , motor = 0 , vel = 100 , acc = 1000, jerk = 500000, wait = True):
       if type(rel) == list:
           rel1 = rel[0]
           rel2 = rel[1]
       else:
           rel1 = rel
-          rel2 = rel
+          rel2 = rel    
+      ttot1 = 0
+      ttot2 = 0
       if motor == 0 or motor == 1:
-          enc2rad1 = self.getsig('c1.enc2rad')
-          delta = round(rel1/360*2*np.pi/enc2rad1)*enc2rad1
+          # This code makes sure to make a setpoint of and integer number of encoder counts
+          # enc2rad1 = self.getsig('c1.enc2rad')
+          # delta = round(rel1/360*2*np.pi/enc2rad1)*enc2rad1
+          delta = rel1 /360*2*np.pi
           if delta !=0:
-              self.prepSP( abs(delta) , 100 , 1000 ,500000 , 1)
+              t1, t2, t3, jd, ttot1 = self.prepSP( abs(delta) , vel , acc ,jerk , 1)
               self.setpar('motor.state1.SPdir' , delta>0)
               self.setpar('motor.state1.spNgo', 1)
       if motor == 0 or motor == 2:
-          enc2rad2 = self.getsig('c2.enc2rad')
-          delta = round(rel2/360*2*np.pi/enc2rad2)*enc2rad2
+          # This code makes sure to make a setpoint of and integer number of encoder counts
+          # enc2rad2 = self.getsig('c2.enc2rad')
+          # delta = round(rel2/360*2*np.pi/enc2rad2)*enc2rad2
+          delta = rel2 /360*2*np.pi
           if delta !=0:
-              self.prepSP( abs(delta) , 100 , 1000 ,500000 , 2)
+              t1, t2, t3, jd, ttot2 = self.prepSP( abs(delta) , vel , acc ,jerk , 2)
               self.setpar('motor.state2.SPdir' , delta>0)
               self.setpar('motor.state2.spNgo', 1)
-          
+      if wait:
+        time.sleep( max( ttot1 , ttot2) + 1e-3 )
   
   def CL_cur( self, f_bw = 2e3 , axis = 0 ):
       f_lp = f_bw*4
@@ -596,7 +608,37 @@ class Motor:
             self.setLowpass( 1 , 0, 150, 0.6 )
           if axis == 2 or axis == 0:
             self.setLowpass( 2 , 0, 150, 0.6 )  
-          
+                      
+      elif cont == 8:
+          BW = 30
+          alpha_i = 6
+          alpha_1 = 3
+          alpha_2 = 3
+          if axis == 1 or axis == 0:
+            self.setLowpass( 1 , 0, 150, 0.6 )
+          if axis == 2 or axis == 0:
+            self.setLowpass( 2 , 0, 150, 0.6 )  
+            
+      elif cont == 9:
+          BW = 35
+          alpha_i = 6
+          alpha_1 = 3
+          alpha_2 = 3
+          if axis == 1 or axis == 0:
+            self.setLowpass( 1 , 0, 150, 0.6 )
+          if axis == 2 or axis == 0:
+            self.setLowpass( 2 , 0, 150, 0.6 )  
+            
+      elif cont == 10:
+          BW = 40
+          alpha_i = 6
+          alpha_1 = 3
+          alpha_2 = 3
+          if axis == 1 or axis == 0:
+            self.setLowpass( 1 , 0, 240, 0.6 )
+          if axis == 2 or axis == 0:
+            self.setLowpass( 2 , 0, 240, 0.6 )  
+                      
       else:
           BW = 50
           alpha_i = 6
