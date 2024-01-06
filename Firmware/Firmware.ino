@@ -1,4 +1,4 @@
-#include <Math.h>
+#include <math.h>
 #include <arm_math.h>
 #include <SPI.h>
 
@@ -41,7 +41,7 @@ void initmotor( mot_conf_t* m , mot_state_t* state ) {
   m->adc2A = 1 / 0.09; //With linear hal current sensors ACS711 (31A or 15.5A): These allow for 2 measurements per PWM cycle
 
   m->enccountperrev = 20000;
-  m->enc2rad = 2 * M_PI / m->enccountperrev;
+  m->enc2rad = twoPI / m->enccountperrev;
   m->I_max = 15; //Max current (peak of the sine wave in a phase)
   m->max_edeltarad = 0.25f * M_PI;
 
@@ -469,9 +469,9 @@ void updateDisturbance() {
       motor.conf2.ss_gain = 0;
     }
   }
-  motor.state.ss_phase += motor.state.ss_f * 2 * M_PI * motor.conf.T;
-  if ( motor.state.ss_phase >= 2 * M_PI) {
-    motor.state.ss_phase -= 2 * M_PI; //Required, because high value floats are inaccurate
+  motor.state.ss_phase += motor.state.ss_f * twoPI * motor.conf.T;
+  if ( motor.state.ss_phase >= twoPI) {
+    motor.state.ss_phase -= twoPI; //Required, because high value floats are inaccurate
   }
   //motor.state.ss_out = ss_offset_lp + motor.conf1.ss_gain * arm_sin_f32( motor.state.ss_phase ); //sin() measured to be faster then sinf(); arm_sin_f32() is way faster!
   float sin_val = sin( motor.state.ss_phase );
@@ -597,12 +597,7 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
   if (confX->reversecommutation) {
     stateX->thetaPark_enc *= -1;
   }
-  while ( stateX->thetaPark_enc >= 2 * M_PI) {
-    stateX->thetaPark_enc -= 2 * M_PI;
-  }
-  while ( stateX->thetaPark_enc < 0) {
-    stateX->thetaPark_enc += 2 * M_PI;
-  }
+  utils_norm_angle_rad( &stateX->thetaPark_enc );
 
   //Angle observer by mxlemming
   float L = (confX->Ld + confX->Lq) / 2;
@@ -625,19 +620,13 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     stateX->BEMFb = -confX->Lambda_m ;
   }
   stateX->thetaPark_obs = atan2(stateX->BEMFb, stateX->BEMFa);
+  utils_norm_angle_rad( &stateX->thetaPark_obs );
 
-  while ( stateX->thetaPark_obs >= 2 * M_PI) {
-    stateX->thetaPark_obs -= 2 * M_PI;
-  }
-  while ( stateX->thetaPark_obs < 0) {
-    stateX->thetaPark_obs += 2 * M_PI;
-  }
   //Check and remove nan
   if (stateX->thetaPark_obs != stateX->thetaPark_obs) {
     stateX->thetaPark_obs = stateX->thetaPark_obs_prev;
   }
   stateX->thetaPark_obs_prev = stateX->thetaPark_obs;
-
 
   if (confX->anglechoice == 0) {
     stateX->thetaPark = stateX->thetaPark_enc;
@@ -668,22 +657,17 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
 
   // Phase advance
   stateX->thetaPark += stateX->eradpers_lp * motor.conf.T * confX->advancefactor;
-
-  while ( stateX->thetaPark >= 2 * M_PI) {
-    stateX->thetaPark -= 2 * M_PI;
-  }
-  while ( stateX->thetaPark < 0) {
-    stateX->thetaPark += 2 * M_PI;
-  }
+  utils_norm_angle_rad( &stateX->thetaPark );
 
   // erpm estimator
   stateX->edeltarad = stateX->thetaPark - stateX->thetaParkPrev;
   if (stateX->edeltarad > M_PI) {
-    stateX->edeltarad -= 2 * M_PI;
+    stateX->edeltarad -= twoPI;
   }
   if (stateX->edeltarad < -M_PI) {
-    stateX->edeltarad += 2 * M_PI;
+    stateX->edeltarad += twoPI;
   }
+
   //Limit change of stateX->thetaPark to 45 deg per cycle:
   if (stateX->edeltarad > confX->max_edeltarad) {
     stateX->edeltarad = confX->max_edeltarad;
@@ -694,16 +678,16 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
   }
 
-  LOWPASS( stateX->eradpers_lp , stateX->edeltarad * motor.conf.fs , 0.005 ); //50 Hz when running at 60 kHz
+  LOWPASS( stateX->eradpers_lp , stateX->edeltarad * motor.conf.fs , 0.005f ); //50 Hz when running at 60 kHz
 
-  stateX->erpm = stateX->eradpers_lp * 60 / (2 * M_PI);
+  stateX->erpm = stateX->eradpers_lp * 60.0f / twoPI;
   stateX->thetaParkPrev = stateX->thetaPark;
   stateX->hfi_abs_pos += stateX->edeltarad;
 
   if (confX->ridethewave == 1 ) {
     if ((stateX->IndexFound1) < 1 ) {
       stateX->thetaPark = stateX->thetawave;
-      stateX->thetawave -= 10 * 2 * M_PI * motor.conf.T;
+      stateX->thetawave -= 10 * twoPI * motor.conf.T;
       stateX->Vq = 1.5;
     }
     else {
@@ -799,33 +783,11 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
       stateX->hfi_ffw = stateX->we * motor.conf.T;
       stateX->hfi_contout += stateX->hfi_ffw; //This is the feedforward
     }
-    while ( stateX->hfi_contout >= 2 * M_PI) {
-      stateX->hfi_contout -= 2 * M_PI;
-    }
-    while ( stateX->hfi_contout < 0) {
-      stateX->hfi_contout += 2 * M_PI;
-    }
-    while ( stateX->hfi_contout >= 2 * M_PI) {
-      stateX->hfi_contout -= 2 * M_PI;
-    }
-    while ( stateX->hfi_contout < 0) {
-      stateX->hfi_contout += 2 * M_PI;
-    }
+    utils_norm_angle_rad( &stateX->hfi_contout );
 
     stateX->hfi_dir = stateX->hfi_contout + stateX->dist * stateX->hfi_distgain;
-
-    while ( stateX->hfi_dir >= 2 * M_PI) {
-      stateX->hfi_dir -= 2 * M_PI;
-    }
-    while ( stateX->hfi_dir < 0) {
-      stateX->hfi_dir += 2 * M_PI;
-    }
-    while ( stateX->hfi_dir_int >= 2 * M_PI) {
-      stateX->hfi_dir_int -= 2 * M_PI;
-    }
-    while ( stateX->hfi_dir_int < 0) {
-      stateX->hfi_dir_int += 2 * M_PI;
-    }
+    utils_norm_angle_rad( &stateX->hfi_dir );
+    utils_norm_angle_rad( &stateX->hfi_dir_int );
   }
   else {
     stateX->hfi_dir = stateX->thetaPark_obs;
@@ -1332,6 +1294,24 @@ void utils_step_towards(float * value, float goal, float step) {
 }
 
 
+void error( int ierror ,  mot_state_t* stateX ) {
+  motor.state1.OutputOn = false;
+  motor.state2.OutputOn = false;
+  digitalWrite( ENGATE , 0);
+  digitalWrite( ENGATE2 , 0);
+  if (motor.state.firsterror == 0) {
+    motor.state.firsterror = ierror;
+    stateX->firsterror = ierror;
+  }
+}
+
+// Functions below are borrowed from VESC firmware (with minor adjustments)
+
+static inline void utils_norm_angle_rad(float *angle) {
+	while (*angle < 0) { *angle += twoPI; }
+	while (*angle >=  twoPI) { *angle -= twoPI; }
+}
+
 static inline void truncate_number(float *number, float min, float max) {
   if (*number > max) {
     *number = max;
@@ -1353,16 +1333,5 @@ static inline void truncate_number_abs(float *number, float max) {
     *number = max;
   } else if (*number < -max) {
     *number = -max;
-  }
-}
-
-void error( int ierror ,  mot_state_t* stateX ) {
-  motor.state1.OutputOn = false;
-  motor.state2.OutputOn = false;
-  digitalWrite( ENGATE , 0);
-  digitalWrite( ENGATE2 , 0);
-  if (motor.state.firsterror == 0) {
-    motor.state.firsterror = ierror;
-    stateX->firsterror = ierror;
   }
 }
