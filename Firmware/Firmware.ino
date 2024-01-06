@@ -98,7 +98,7 @@ void SPI_init( int SSpin ) {
   SPI.begin();
   SPI.beginTransaction(SPISettings( 10e6 , MSBFIRST, SPI_MODE1)); //DRV8301 specsheet: 100 ns -> 10 Mhz. Set correct mode (fallingedgeof the clock).
   pinMode(SSpin, OUTPUT);
-  int receivedVal16;
+  int receivedVal16 = 0;
   while (receivedVal16 != 0x1038) {
     //while (receivedVal16 != 0x1008) {
     digitalWrite(SSpin, LOW);
