@@ -668,15 +668,15 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     stateX->edeltarad += twoPI;
   }
 
-  //Limit change of stateX->thetaPark to 45 deg per cycle:
-  if (stateX->edeltarad > confX->max_edeltarad) {
-    stateX->edeltarad = confX->max_edeltarad;
-    stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
-  }
-  else if (stateX->edeltarad < -confX->max_edeltarad) {
-    stateX->edeltarad = -confX->max_edeltarad;
-    stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
-  }
+  //Limit change of stateX->thetaPark to 45 deg per cycle. Disabled because it limits the posibility to set angle from host and not sure whether it brings something good.
+//  if (stateX->edeltarad > confX->max_edeltarad) {
+//    stateX->edeltarad = confX->max_edeltarad;
+//    stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
+//  }
+//  else if (stateX->edeltarad < -confX->max_edeltarad) {
+//    stateX->edeltarad = -confX->max_edeltarad;
+//    stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
+//  }
 
   LOWPASS( stateX->eradpers_lp , stateX->edeltarad * motor.conf.fs , 0.005f ); //50 Hz when running at 60 kHz
 
@@ -737,14 +737,17 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     if (stateX->hfi_V != stateX->hfi_prev) {
       stateX->hfi_V_act = stateX->hfi_prev + (stateX->hfi_V - stateX->hfi_prev) / 2;
     }
-    if (motor.state.is_v7) {
+    //if (motor.state.is_v7) {
+    if (stateX->hfi_high) {
       stateX->hfi_Id_meas_high = stateX->Id_meas;
       stateX->hfi_Iq_meas_high = stateX->Iq_meas;
+      stateX->hfi_high = 0;
     }
     else {
       stateX->hfi_V_act = -stateX->hfi_V_act;
       stateX->hfi_Id_meas_low = stateX->Id_meas;
       stateX->hfi_Iq_meas_low = stateX->Iq_meas;
+      stateX->hfi_high = 1;
     }
     stateX->delta_id = stateX->hfi_Id_meas_high - stateX->hfi_Id_meas_low;
     stateX->delta_iq = stateX->hfi_Iq_meas_high - stateX->hfi_Iq_meas_low;
@@ -761,7 +764,7 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     if (stateX->hfi_method == 1 || stateX->hfi_method == 3 ) {
       stateX->hfi_curangleest =  0.5f * stateX->delta_iq / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq - 1 / confX->Ld ) ); //0.5 because delta_iq is twice the iq value
     }
-    else if (stateX->hfi_method == 2 || stateX->hfi_method == 4) {
+    else if (stateX->hfi_method == 2 || stateX->hfi_method == 4) { //These perform worse at high frequency, -2 slope becomes 0 slope.
       if (motor.state.is_v7) {
         stateX->hfi_curangleest =  (stateX->Iq_meas - stateX->Iq_SP) / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq - 1 / confX->Ld ) );
       }

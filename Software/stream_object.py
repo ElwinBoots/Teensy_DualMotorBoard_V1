@@ -8,9 +8,12 @@ Created on Sat Oct  7 14:51:16 2023
 Fplayback = round(1/m.Ts)
 N_samples_per_write = 100
 bufsize = 10000
-musicgain = 10
+musicgain = 5
 
 import scipy
+import librosa
+import os
+
 folder = 'music\\'
 
 #%%
@@ -48,12 +51,34 @@ stream = scipy.signal.resample(stream , int(len(stream)/Fs*Fplayback) )
 
 stream = data
 stream = scipy.signal.resample(stream , int(len(stream)/Fs*Fplayback) ) 
+#%%
 
-
-
-
+fn_mp3 = os.path.join('music', 'It Takes a Seven Nation Army to Hold Us Back (feat. Emilio Lopez).mp3')
+stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
+# stream = scipy.signal.resample(stream , int(len(stream)/Fs*Fplayback) ) 
 
 #%%
+fn_mp3 = os.path.join('music', 'onlymp3.to - Dr Dre - Still D R E ft Snoop Dogg-_CL6n0FJZpk-192k-1688323960.mp3')
+stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
+#%%
+fn_mp3 = os.path.join('music', '6 Million Subscribers. Thank you..mp3')
+stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
+
+#%%
+fn_mp3 = os.path.join('music', 'Hopsin - Kumbaya.mp3')
+stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
+#%%
+fn_mp3 = os.path.join('music', 'Hop Is Back.mp3')
+stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
+#%%
+fn_mp3 = os.path.join('music', 'Eminem - The Real Slim Shady (Official Video - Dirty Version).mp3')
+stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
+
+#%%
+
+if stream.ndim == 1:
+  stream = np.tile(stream,(2,1)).T
+
 stream = stream / np.max(np.abs(stream))
 L = len(stream)
 
@@ -75,6 +100,8 @@ m.setpar('s2.buffergain' , musicgain)
 try:
     end = int( (L-bufsize) /N_samples_per_write)
     for i in range( end ):
+        # m.CL_cur( i*1900/end+100 , 1)
+        # m.CL_cur( i*1900/end+100 , 2)
         # if i == int(end/6):
         #     m.vel([20 , -20])
         # if i == int(end/3):

@@ -33,10 +33,6 @@ for i in range(int(2e4),0,-1):
 df = m.stoptracegetdata()
 
 df['motor.state1.thetawave'].plot()
-
-
-
-
 df['motor.state.curtime'].diff().plot()
 
 

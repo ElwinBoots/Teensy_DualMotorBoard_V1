@@ -233,6 +233,7 @@ typedef struct mot_state_t {
   unsigned int hfi_method;
   float hfi_ffw;
   float hfi_maxvel;
+  bool hfi_high;
   float diq_compensation[361];
   bool diq_compensation_on;
   float compensation;

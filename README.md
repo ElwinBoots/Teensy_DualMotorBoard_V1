@@ -14,9 +14,14 @@ See: https://www.youtube.com/@elwinboots2614
 See firmware folder. Almost all code can be found in Firmware.ino. 
 
 ### Software to build firmware
-- Arduino IDE 1.8.19 https://www.arduino.cc/en/software
-- Teensyduino https://www.pjrc.com/teensy/td_download.html
-
+"Old" Arduino IDE
+- Arduino IDE 1.8.19 https://www.arduino.cc/en/software (Legacy IDE)
+- Teensyduino https://www.pjrc.com/teensy/td_download.html (Follow the "Arduino 1.8.x Software Development" steps)
+Or,
+"New" Arduino IDE:
+- Arduino IDE https://www.arduino.cc/en/software (current version: 2.2.1)
+- Teensyduino https://www.pjrc.com/teensy/td_download.html (Follow the "Arduino 2.0.x Software Development" steps
+ 
 If you want to test with 1 or 0 DRV8301 boards connected, search for the line: SPI_init( SSPIN ); and/or SPI_init( SSPIN2 ); and comment them out. With these lines commented the firmware and software can run without boards. With these lines the board waits for the DRV8301 boards, before continuing to boot.
 
 Almost all parameters are defined in defines.h. All of these are accessible (read and write) from the host pc using the software provided. 
