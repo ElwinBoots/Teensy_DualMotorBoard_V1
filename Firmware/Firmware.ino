@@ -1013,7 +1013,7 @@ void communicationProcess() {
         else
         {
           trace.send_all = false;
-          error(100 , &motor.state1);
+          // error(100 , &motor.state1); No error, just stop sending
           break;
         }
         i_total++;
@@ -1040,7 +1040,7 @@ void communicationProcess() {
         }
         else {
           trace.n_to_send = 0;
-          error(101 , &motor.state1);
+          //error(101 , &motor.state1); No error, just stop sending
           break;
         }
       }
@@ -1158,7 +1158,7 @@ void processSerialIn() {
           Serial.write( trace.all_pointers[isignal] + (signallocation * memberlength) , signallength );
         }
         else {
-          error(102 , &motor.state1);
+          //error(102 , &motor.state1); No error, just stop sending
         }
         break;
       }
@@ -1170,7 +1170,7 @@ void processSerialIn() {
           Serial.write( trace.all_pointers[isignal] , trace.all_lengths[isignal]);
         }
         else {
-          error(103 , &motor.state1);
+          //error(103 , &motor.state1); No error, just stop sending
         }
         break;
       }
