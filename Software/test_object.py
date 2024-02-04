@@ -131,7 +131,6 @@ m.setpar('motor.conf1.Lq', Lq)
 m.setpar('motor.conf1.Ld', Ld)
 m.setpar('motor.state1.R', R)
 
-m.setpar('s1.hfi_use_lowpass', 1)
 m.setpar('s1.hfi_method', 1)
 
 Ki = 500*2*pi
@@ -256,6 +255,137 @@ lowpass_c = 1-np.exp(-f_lp*2*pi*m.Ts)
 m.setpar( 'motor.conf1.lowpass_Vd_c' , lowpass_c )
 m.setpar( 'motor.conf1.lowpass_Vq_c' , lowpass_c )
 
+# %% hover board motor (HFI barely works on this motor)
+
+# Measured under various rotor angles:
+# Ldest_uH
+# Out[144]: 
+# [462.9145927760706,
+#  455.5822305992157,
+#  458.4496309197969,
+#  467.39606157631823,
+#  455.9732848743384,
+#  463.5306275964545,
+#  467.8280780583607,
+#  470.08697191265736,
+#  464.079647682333,
+#  465.76856932178026]
+
+# Lqest_uH
+# Out[145]: 
+# [518.0667794228592,
+#  530.8601390132387,
+#  529.4404892386292,
+#  517.3794533192296,
+#  531.0395882236231,
+#  531.1383859961815,
+#  519.4933288285962,
+#  515.356549295371,
+#  521.5960691614754,
+#  519.0412917635128]
+
+# np.mean(Ldest_uH)
+# Out[146]: 463.1609695317326
+
+# np.mean(Lqest_uH)
+# Out[147]: 523.3412074262717
+
+Ld = 463e-6
+Lq = 523e-6
+R = 0.23
+# N_pp = 4
+# fluxlinkage = 0.000203 * 0.97
+# m.setpar('motor.conf1.Lambda_m', fluxlinkage)
+# m.setpar('motor.conf1.N_pp',  N_pp)
+m.setpar('motor.conf1.Lq', Lq)
+m.setpar('motor.conf1.Ld', Ld)
+m.setpar('motor.state1.R', R)
+
+m.CL_cur( 500 , 1)
+
+motor.conf1.Lambda_m = 0.02145
+motor.conf1.anglechoice = 1
+m.setpar('s1.hfi_on', 0)
+
+
+# %% hover board motor HFI
+Ki = 1000*2*pi
+hfi_v = 6
+
+f_lp = 1e5
+m.setpar('c1.hfi_c_lowpass', 1 - np.exp(-f_lp*2*pi*m.Ts) )
+
+m.setpar('s1.hfi_maxvel', 1e6)
+m.setpar('s1.hfi_gain', Ki)
+m.setpar('s1.hfi_gain_int2', 5*2*pi)
+m.setpar('s1.hfi_V', hfi_v)
+m.setpar('c1.anglechoice', 3)
+m.setpar('s1.hfi_method', 1)
+
+m.setpar('s1.hfi_on', 1)
+
+
+motor.conf1.hfi_truncate_rad = 0.01  #This seems capable to reduce errors at speed?
+
+
+# %% hover board motor, only stator
+Ld = 568e-6
+Lq = 568e-6
+R = 0.23
+# N_pp = 4
+# fluxlinkage = 0.000203 * 0.97
+# m.setpar('motor.conf1.Lambda_m', fluxlinkage)
+# m.setpar('motor.conf1.N_pp',  N_pp)
+m.setpar('motor.conf1.Lq', Lq)
+m.setpar('motor.conf1.Ld', Ld)
+m.setpar('motor.state1.R', R)
+
+m.CL_cur( 2500 , 1)
+# %%
+motor.state1.Id_offset_SP = 0.6
+# %%
+motor.state1.Id_offset_SP = 0
+# %%
+motor.state1.Iq_offset_SP = 0.8
+# %%
+motor.state1.Iq_offset_SP = 0
+# %% 100CC Turnigy Rotomax
+Ld = 4.6e-6
+Lq = 7.3e-6
+R = 0.027
+N_pp = 10
+fluxlinkage_fromkv = 60 / (np.sqrt(3) * 2 * np.pi * 167 * N_pp) 
+fluxlinkage = 0.0039
+m.setpar('motor.conf1.Lambda_m', fluxlinkage)
+m.setpar('motor.conf1.N_pp',  N_pp)
+m.setpar('motor.conf1.Lq', Lq)
+m.setpar('motor.conf1.Ld', Ld)
+m.setpar('motor.state1.R', R)
+
+m.CL_cur( 2500 , 1)
+
+# motor.conf1.Lambda_m = 0.02145
+motor.conf1.anglechoice = 1
+m.setpar('s1.hfi_on', 0)
+
+
+# %% 100CC Turnigy Rotomax HFI
+m.setpar('s1.Id_offset_SP', 5)
+time.sleep(0.5)
+m.setpar('s1.Id_offset_SP', 0)
+
+motor.state1.hfi_method = 1
+
+Ki = 500*2*pi
+hfi_v = 1
+
+motor.state1.hfi_maxvel = 1e6
+motor.state1.hfi_gain = Ki
+motor.state1.hfi_gain_int2 = 5*2*pi
+motor.state1.hfi_V = hfi_v
+motor.conf1.anglechoice = 3
+motor.state1.hfi_on = 1
+
 # %%
 
 m.setpar('motor.conf1.anglechoice', 1)
@@ -286,7 +416,6 @@ m.setpar('s1.Id_offset_SP', 5)
 time.sleep(0.5)
 m.setpar('s1.Id_offset_SP', 0)
 
-m.setpar('s1.hfi_use_lowpass', 1)
 m.setpar('s1.hfi_method', 1)
 
 Ki = 500*2*pi
@@ -309,8 +438,8 @@ m.CL( 7, 1, J=0.00021)
 # m.CL( 10, 1, J=0.00021)
 
 # %% Enable hfi 2
-Ld = 18e-6
-Lq = 26e-6
+Ld = 16.6e-6
+Lq = 29.2e-6
 R = 0.035
 m.setpar('motor.conf2.Lambda_m', 0.005405)
 m.setpar('motor.conf2.N_pp',  7)
@@ -325,24 +454,28 @@ time.sleep(0.5)
 m.setpar('s2.Id_offset_SP', 0)
 
 
-m.setpar('s2.hfi_use_lowpass', 1)
 m.setpar('s2.hfi_method', 1)
 
+hfi_v = 2
 Ki = 500*2*pi
-hfi_v = 3
+f_lp = 1500
 
 m.setpar('s2.hfi_maxvel', 1e6)
 m.setpar('s2.hfi_gain', Ki)
 m.setpar('s2.hfi_gain_int2', 5*2*pi)
 m.setpar('s2.hfi_V', hfi_v)
+m.setpar('c1.hfi_c_lowpass', 1 - np.exp(-f_lp*2*pi*m.Ts) )
 m.setpar('c2.anglechoice', 3)
 m.setpar('s2.hfi_on', 1)
+
+motor.conf2.hfi_truncate_rad = 0.01
 
 #%%  
 m.setpar( 's2.hfi_useforfeedback' , 1)
 
 # m.CL( 1, 2, J=0.00025)
 m.CL( 7, 2, J=0.00025)
+
 # m.CL( 8, 2, J=0.00025)
 # m.CL( 9, 2, J=0.00025)
 
@@ -366,7 +499,8 @@ df = m.trace(0.1)
 
 df.plot()
 # %%
-
+motor.conf1.Lambda_m = 0.02145
+# %%
 signals = m.setTrace(['motor.state1.BEMFa', 'motor.state1.BEMFb'])
 df = m.trace(1)
 
@@ -488,7 +622,7 @@ print(m.getsig('motor.state1.current'))
 print(m.getsigpart('motor.state1.current', 1, 3))
 
 # %% Current loop axis 1  
-m.setpar('motor.conf1.anglechoice', 0)
+# m.setpar('motor.conf1.anglechoice', 0)
 
 NdownsamplePRBS = 1
 N = 30*NdownsamplePRBS*2047
@@ -497,7 +631,7 @@ signals = ['motor.state1.Id_meas', 'motor.state1.Iq_meas',
 m.setTrace(signals )
 
 
-gain = 0.5
+gain = 3
 m.setpar('motor.state1.Vq_distgain', 1)
 m.setpar('motor.state1.Vd_distgain', 1)
 m.setpar('motor.state1.Iq_distgain', 0)
@@ -559,11 +693,6 @@ plt.figure(2)
 m.bode( 1 / Sd - 1 , f, 'Open loop D')
 m.bode( 1 / Sq - 1 , f, 'Open loop Q')
 
-plt.figure(6)
-m.bode( (1 / Sd - 1)/Pd , f, 'Controller D')
-m.bode( (1 / Sq - 1)/Pq , f, 'Controller Q')
-
-
 plt.figure(3)
 m.nyquist( 1 / Sd - 1 , f, 'Open loop D')
 m.nyquist( 1 / Sq - 1 , f, 'Open loop Q')
@@ -589,9 +718,14 @@ plt.figure(6)
 m.bode( 1 - Sd , f, 'Closed loop D')
 m.bode( 1 - Sq , f, 'Closed loop Q')
 
+plt.figure(7)
+m.bode( (1 / Sd - 1)/Pd , f, 'Controller D')
+m.bode( (1 / Sq - 1)/Pq , f, 'Controller Q')
+
+
 # %% Open loop identification
 NdownsamplePRBS = 10
-N = 15*NdownsamplePRBS*2047
+N = 10*NdownsamplePRBS*2047
 
 signals = ['motor.state1.Id_meas', 'motor.state1.Iq_meas',
            'motor.state1.dist', 'motor.state1.emech' , 'motor.state1.mechcontout' , 'motor.state1.Iq_SP']
@@ -614,15 +748,15 @@ m.setpar('motor.state1.distoff', 0)  # disturbance offset
 m.setpar('motor.conf.NdownsamplePRBS', 1)  # Downsampling
 
 
-dfout = getFFTdf(df, NdownsamplePRBS , 10*2047 )
+dfout = m.getFFTdf(df, NdownsamplePRBS , 10*2047 )
 f = dfout.index.values
 
 plt.figure(1)
-bode( -dfout['motor.state1.emech'] , f, 'Measured plant')
+m.bode( -dfout['motor.state1.emech'] , f, 'Measured plant')
 
 
 plt.figure(2)
-bode( 1/(-dfout['motor.state1.emech'] * (2*pi*f)**2) , f, 'Measured inertia')
+m.bode( 1/(-dfout['motor.state1.emech'] * (2*pi*f)**2) , f, 'Measured inertia')
 
 
 # %% Open loop identification motor 2
@@ -910,7 +1044,6 @@ plt.legend( ("Parallel beta 0 A" , "Orthogonal beta 0 A" , "Parallel beta -5 A" 
 # plt.ylabel('delta current [A]')
 # plt.legend( ("Parallel" , "Orthogonal") , loc='best') 
 # # plt.xlim( -180, 180)
-# plt.title('Rotating current vector, stationary rotor')
 
 # offset = hfi_v * (1/Ld + 1/Lq) * m.Ts * 0.5
 
@@ -921,14 +1054,14 @@ plt.legend( ("Parallel beta 0 A" , "Orthogonal beta 0 A" , "Parallel beta -5 A" 
 
 
 # %% Debug HFI rotating vector
-Ld = 19e-6
-Lq = 34e-6
-R = 0.035
-m.setpar('motor.conf1.Lambda_m', 0.005405)
-m.setpar('motor.conf1.N_pp',  7)
-m.setpar('motor.conf1.Lq', Lq)
-m.setpar('motor.conf1.Ld', Ld)
-m.setpar('motor.state1.R', R)
+# Ld = 19e-6
+# Lq = 34e-6
+# R = 0.035
+# m.setpar('motor.conf1.Lambda_m', 0.005405)
+# m.setpar('motor.conf1.N_pp',  7)
+# m.setpar('motor.conf1.Lq', Lq)
+# m.setpar('motor.conf1.Ld', Ld)
+# m.setpar('motor.state1.R', R)
 
 
 m.setpar('s1.hfi_method', 1)
@@ -937,7 +1070,7 @@ Ki = 1000*2*pi
 m.setpar('s1.hfi_maxvel', 1e6)
 m.setpar('s1.hfi_gain', Ki)
 m.setpar('s1.hfi_gain_int2', 5*2*pi)
-m.setpar('s1.hfi_V', 2)
+m.setpar('s1.hfi_V', 1)
 m.setpar('s1.hfi_on', 1)
 
 m.setpar('motor.conf1.anglechoice', 99)
@@ -951,11 +1084,12 @@ Ldest_uH = []
 Lqest_uH = []
 
 # for hfi_v in [ 1 , 2 , 3 , 4  ]:
-for hfi_v in [ 2 , 4 , 6 , 8 , 10 , 12 , 14  ]:
+# for hfi_v in [ 2 , 4 , 6 , 8 , 10 , 12 , 14  ]:
+for hfi_v in [ 2  ]:
   m.setpar('s1.hfi_V', hfi_v)
   motor.state1.thetaPark = 0
-  m.setpar('motor.state1.i_vector_radpers', 2*pi)
-  df = m.trace(1)
+  m.setpar('motor.state1.i_vector_radpers', 5*2*pi)
+  df = m.trace(0.2)
   m.setpar('motor.state1.i_vector_radpers', 0*pi)
   
   # df.filter(regex='delta_i|thetaPark').rolling(100).mean().plot()
@@ -979,6 +1113,9 @@ for hfi_v in [ 2 , 4 , 6 , 8 , 10 , 12 , 14  ]:
   
   Ldest_uH.append(1e6/(avg + amp))
   Lqest_uH.append(1e6/(avg - amp))
+
+
+
 
 m.setpar('s1.hfi_on', 0)
   
@@ -1633,13 +1770,22 @@ m.pos_wait([180,0] , vel=v, acc = a)
 
 
 
-#%% 165 kv
-v = 100
+#%% 165 
+motor.conf2.hfi_truncate_rad = 0.01
+
+m.setpar('motor.state2.velFF' , 0.00055)
+
+v = 150
 a = 1000
 
-m.pos_wait( [ 360 , 360 ] , vel=v , acc = a)
-m.pos_wait( [ 0 , 0 ] , vel=v , acc = a)
+m.setTrace( ['s2.hfi_error', 's2.delta_id' , 's2.delta_iq','s2.hfi_dir' ,'s2.rmech','s2.ymech' , 's2.emech' , 's2.Iq_SP' ])
+m.tracebg(5)
 
+m.rel( [ 0 , 3600 ] , vel=v , acc = a)
+m.rel( [ 0, -3600 ] , vel=v , acc = a)
+
+df = m.stoptracegetdata()
+df.plot()
 
 #%% Relative setpoints with trace
 # time.sleep(10)

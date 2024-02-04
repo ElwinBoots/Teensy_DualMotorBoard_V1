@@ -195,7 +195,7 @@ class Motor:
       self._fs_downsample = self.fs / downsample
       self.ser.timeout = max(1/self._fs_downsample * 1.2 , 0.04 ) #Note: changing timeout sometimes causes a glitch on the motor when running 60 kHz. Don't know why
       i = int(np.ceil(t * self._fs_downsample).astype('int') + 1)
-      # self.ser.reset_input_buffer()
+      self.ser.reset_input_buffer()
       self.ser.write(b'b' + struct.pack('I', i))
       buffer = self.ser.readall()
       if outtype == 'df':

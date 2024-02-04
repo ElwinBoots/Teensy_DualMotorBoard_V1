@@ -5,10 +5,11 @@ Created on Sat Oct  7 14:51:16 2023
 @author: elwin
 """
 
-Fplayback = round(1/m.Ts)
+Fplayback = m.fs
 N_samples_per_write = 100
 bufsize = 10000
-musicgain = 5
+musicgain1 = 12
+musicgain2 = 12
 
 import scipy
 import librosa
@@ -48,6 +49,12 @@ stream = data
 stream = scipy.signal.resample(stream , int(len(stream)/Fs*Fplayback) ) 
 #%%
 (Fs , data) = scipy.io.wavfile.read( folder + "Lights On ▶ FNAF SECURITY BREACH SONG.wav")
+
+stream = data
+stream = scipy.signal.resample(stream , int(len(stream)/Fs*Fplayback) ) 
+
+#%%
+(Fs , data) = scipy.io.wavfile.read( folder + "Viva Santa Cruz.wav")
 
 stream = data
 stream = scipy.signal.resample(stream , int(len(stream)/Fs*Fplayback) ) 
@@ -93,8 +100,8 @@ for i in range( int(bufsize /N_samples_per_write) ):
 
 m.setpar('s1.runstream' , 1)
 m.setpar('s2.runstream' , 1)
-m.setpar('s1.buffergain' , musicgain)
-m.setpar('s2.buffergain' , musicgain)
+m.setpar('s1.buffergain' , musicgain1)
+m.setpar('s2.buffergain' , musicgain2)
 
 # m.vel([-20 , 20])
 try:
@@ -113,7 +120,7 @@ try:
             pass
         m.setparpart( 's1.streambuffer' ,  stream[ i*N_samples_per_write + bufsize: (i+1)*N_samples_per_write + bufsize , 1] , startlocation = startloc )
         m.setparpart( 's2.streambuffer' ,  stream[ i*N_samples_per_write + bufsize: (i+1)*N_samples_per_write + bufsize , 0] , startlocation = startloc )
-        # print((i+1)*N_samples_per_write + bufsize)
+        # print((i+1)*N_samples_per_write + bufsize)z
 except:
     time.sleep(0.1)   
     m.ser.flushInput()  

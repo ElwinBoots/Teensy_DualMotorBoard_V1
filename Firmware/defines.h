@@ -13,8 +13,9 @@
 #define SQRT_TWO_THREE  0.81649658092772603273242802490196379
 #define SQRT3_by_2      0.86602540378443864676372317075293618
 #define twoPI           6.28318530717958647692528676655900576
+#define ONE_BY_SQRT2    0.70710678118654752440084436210484903
 
-#define F_PWM 20e3
+#define F_PWM 24e3
 #define CHOPPERPIN 33 //Digital output for chopper resistor
 #define DEBUGPIN 32
 #define ENGATE  34
@@ -25,7 +26,7 @@
 // First order lowpass filter.
 // c_lowpass = 1 - exp( -f_lowpass * 2 * pi * Ts );
 // Where f_lowpass is the lowpass frequency in [Hz] and Ts is the sample time in [s]
-
+// Note: output and input variable should not be the same!
 #define LOWPASS( output, input, c_lowpass)  (output += (c_lowpass) * ((input) - (output)))
 
 
@@ -76,6 +77,10 @@ typedef struct mot_conf_t {
   float Kd_prep;
   float lowpass_c_prep;
   float enc_transmission;
+
+  float hfi_c_lowpass;
+  float hfi_truncate_rad;
+  
 } mot_conf_t;
 
 typedef struct mot_state_t {
@@ -208,13 +213,21 @@ typedef struct mot_state_t {
   bool SPdir;
   int spNgo;
 
+  float D_axis_estimate;
+  float D_axis_delta;
+  float D_axis_estimate_prev;
+  float D_axis_estimate_tot;
+
   bool hfi_on;
+  float delta_i_parallel;
+  float delta_i_orthogonal;
+  bool hfi_sign;
   float hfi_V;
   float hfi_V_act;
+  float hfi_V_act_Q;
   float hfi_dir;
   float hfi_dir_int;
   float hfi_gain;
-  float hfi_curangleest;
   float hfi_gain_int2;
   float hfi_Id_meas_low;
   float hfi_Iq_meas_low;
@@ -222,21 +235,23 @@ typedef struct mot_state_t {
   float hfi_Iq_meas_high;
   float delta_id;
   float delta_iq;
-  bool hfi_firstcycle;
+  int hfi_n_cycle;
   double hfi_abs_pos;
   bool hfi_useforfeedback;
-  bool hfi_use_lowpass;
   float hfi_prev;
   float hfi_distgain;
   float hfi_contout;
+  float hfi_error_raw;
   float hfi_error;
+  float hfi_error_lp;
   unsigned int hfi_method;
-  float hfi_ffw;
   float hfi_maxvel;
   bool hfi_high;
   float diq_compensation[361];
   bool diq_compensation_on;
   float compensation;
+  float hfi_curangleest_trunc;
+  
   unsigned int firsterror;
 } mot_state_t;
 
@@ -293,6 +308,8 @@ typedef struct conf_t {
   float ss_fstep;
   float ss_fend;
   unsigned int ss_n_aver;
+  
+  float test1[3];
 } conf_t;
 
 typedef struct motor_total_t {

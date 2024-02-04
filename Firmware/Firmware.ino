@@ -51,10 +51,14 @@ void initmotor( mot_conf_t* m , mot_state_t* state ) {
 
   //Motor parameters
   m->N_pp = 4; //Number of pole pairs
-  m->Ld = 10e-3; //[Henry] Ld induction: phase-zero
+  m->Ld = 9e-3; //[Henry] Ld induction: phase-zero
   m->Lq = 10e-3; //[Henry] Lq induction: phase-zero
   m->Lambda_m = 0.01; //[Weber] Note: on the fly changes of Kt do not adjust this value!
   m->Kp = 0;
+
+  m->hfi_c_lowpass = 0.19; //HFI lowpass (0.19 gives 2000 Hz at 60 kHz sampling: c = 1 - exp(-2000*2*pi*1/60000))
+
+  m->hfi_truncate_rad = 1;
 }
 
 void setup() {
@@ -669,14 +673,14 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
   }
 
   //Limit change of stateX->thetaPark to 45 deg per cycle. Disabled because it limits the posibility to set angle from host and not sure whether it brings something good.
-//  if (stateX->edeltarad > confX->max_edeltarad) {
-//    stateX->edeltarad = confX->max_edeltarad;
-//    stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
-//  }
-//  else if (stateX->edeltarad < -confX->max_edeltarad) {
-//    stateX->edeltarad = -confX->max_edeltarad;
-//    stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
-//  }
+  //  if (stateX->edeltarad > confX->max_edeltarad) {
+  //    stateX->edeltarad = confX->max_edeltarad;
+  //    stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
+  //  }
+  //  else if (stateX->edeltarad < -confX->max_edeltarad) {
+  //    stateX->edeltarad = -confX->max_edeltarad;
+  //    stateX->thetaPark = stateX->thetaParkPrev + stateX->edeltarad;
+  //  }
 
   LOWPASS( stateX->eradpers_lp , stateX->edeltarad * motor.conf.fs , 0.005f ); //50 Hz when running at 60 kHz
 
@@ -730,14 +734,18 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
   // HFI
   if ( stateX->hfi_on ) {
     stateX->hfi_V_act = stateX->hfi_V;
-    if (stateX->hfi_firstcycle) {
-      stateX->hfi_V_act /= 2;
-      stateX->hfi_firstcycle = false;
+    if (stateX->hfi_n_cycle == 0 ) {
+      stateX->hfi_V_act /= 2; //Half voltage on first injection avoids large transient
     }
     if (stateX->hfi_V != stateX->hfi_prev) {
-      stateX->hfi_V_act = stateX->hfi_prev + (stateX->hfi_V - stateX->hfi_prev) / 2;
+      stateX->hfi_V_act = stateX->hfi_prev + (stateX->hfi_V - stateX->hfi_prev) / 2; //Prevent transient on changing V_hfi
     }
-    //if (motor.state.is_v7) {
+
+    if (stateX->hfi_method == 4) { //For alpha injection method.
+      stateX->Id_meas = stateX->Ialpha;
+      stateX->Iq_meas = stateX->Ibeta;
+    }
+
     if (stateX->hfi_high) {
       stateX->hfi_Id_meas_high = stateX->Id_meas;
       stateX->hfi_Iq_meas_high = stateX->Iq_meas;
@@ -752,56 +760,135 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     stateX->delta_id = stateX->hfi_Id_meas_high - stateX->hfi_Id_meas_low;
     stateX->delta_iq = stateX->hfi_Iq_meas_high - stateX->hfi_Iq_meas_low;
 
-    if ( stateX->diq_compensation_on) {
-      //stateX->delta_iq -= stateX->diq_compensation[ int(stateX->thetaPark * 180 / 2 / M_PI) ]; //Note: not adjusted yet for changing hfi_V
+    if ( stateX->diq_compensation_on) { //Not helping the performance (yet)
       stateX->compensation = stateX->diq_compensation[ int(stateX->thetaPark * 360 / 2 / M_PI) ];
     }
     else {
       stateX->compensation = 0;
     }
 
-    //stateX->hfi_curangleest = 0.25f * atan2( -stateX->delta_iq  , stateX->delta_id - 0.5 * stateX->hfi_V * motor.conf.T * ( 1 / Ld + 1 / Lq ) ); //Complete calculation (not needed because error is always small due to feedback). 0.25 comes from 0.5 because delta signals are used and 0.5 due to 2theta (not just theta) being in the sin and cos wave.
-    if (stateX->hfi_method == 1 || stateX->hfi_method == 3 ) {
-      stateX->hfi_curangleest =  0.5f * stateX->delta_iq / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq - 1 / confX->Ld ) ); //0.5 because delta_iq is twice the iq value
-    }
-    else if (stateX->hfi_method == 2 || stateX->hfi_method == 4) { //These perform worse at high frequency, -2 slope becomes 0 slope.
-      if (motor.state.is_v7) {
-        stateX->hfi_curangleest =  (stateX->Iq_meas - stateX->Iq_SP) / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq - 1 / confX->Ld ) );
-      }
-      else {
-        stateX->hfi_curangleest =  (stateX->Iq_meas - stateX->Iq_SP) / (-stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq - 1 / confX->Ld ) );
-      }
-    }
-    if (stateX->hfi_use_lowpass) {
-      LOWPASS( stateX->hfi_error , -stateX->hfi_curangleest , 0.19); //Negative feedback and lowpass (0.19 gives 2000 Hz at 60 kHz sampling: c = 1 - exp(-2000*2*pi*1/60000))
-    }
-    else
-    {
-      stateX->hfi_error = -stateX->hfi_curangleest; //Negative feedback
-    }
-    stateX->hfi_dir_int += motor.conf.T * stateX->hfi_error * stateX->hfi_gain_int2; //This the the double integrator
+    switch ( stateX->hfi_method ) {
+      case 1: // Inject in D, Linearized calculation.
+        {
+          stateX->hfi_error_raw =  stateX->delta_iq / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld - 1 / confX->Lq ) );
+          break;
+        }
+      case 2: // Inject in D, Full calculation. Note: full calculation doesn't really bring anything. For angle errors up to ~0.3 rad there is no difference.
+        {
+          stateX->hfi_error_raw = -0.5f * atan2( -stateX->delta_iq  , stateX->delta_id - 0.5 * stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq + 1 / confX->Ld ) );
+          break;
+        }
+      case 3: // Inject at 45 degrees, Linearized calculation
+        {
+          if (stateX->hfi_sign) {
+            stateX->delta_i_parallel    = (stateX->delta_id + stateX->delta_iq) * ONE_BY_SQRT2;
+            stateX->hfi_error_raw = (stateX->delta_i_parallel - 0.5 * stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld + 1 / confX->Lq )) / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld - 1 / confX->Lq ) );
+          }
+          else {
+            stateX->delta_i_parallel    = (stateX->delta_id - stateX->delta_iq) * ONE_BY_SQRT2;
+            stateX->hfi_error_raw = -(stateX->delta_i_parallel - 0.5 * stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld + 1 / confX->Lq )) / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld - 1 / confX->Lq ) );
+          }
 
-    stateX->hfi_contout += stateX->hfi_gain * motor.conf.T * stateX->hfi_error + stateX->hfi_dir_int; //This is the integrator and the double integrator
-    if (stateX->hfi_method == 3 || stateX->hfi_method == 4) {
-      stateX->hfi_ffw = stateX->we * motor.conf.T;
-      stateX->hfi_contout += stateX->hfi_ffw; //This is the feedforward
+          stateX->hfi_V_act = stateX->hfi_V_act * ONE_BY_SQRT2;
+          if (stateX->hfi_sign) {
+            stateX->hfi_V_act_Q = stateX->hfi_V_act;
+          }
+          else {
+            stateX->hfi_V_act_Q = -stateX->hfi_V_act;
+          }
+          const float hfi_switch_current = 2;
+          if (stateX->Iq_SP > hfi_switch_current) {
+            if (!stateX->hfi_sign) {
+              stateX->hfi_sign = true;
+              //stateX->hfi_n_cycle = 0; //This doesn't seem to help
+              stateX->hfi_V_act_Q = 0; //Improves transition
+            }
+          }
+          else if (stateX->Iq_SP < -hfi_switch_current) {
+            if (stateX->hfi_sign) {
+              stateX->hfi_sign = false;
+              //stateX->hfi_n_cycle = 0; //This doesn't seem to help
+              stateX->hfi_V_act_Q = 0; //Improves transition
+            }
+          }
+          break;
+        }
+      case 4: // Inject in Alpha, Full calculation. Work in progress. Not working (yet?)
+        {
+          // Note: delta_id here is really delta_ialpha, and delta_iq is delta_ibeta.
+          stateX->D_axis_estimate = -0.5f * atan2( -stateX->delta_iq  , stateX->delta_id - 0.5 * stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq + 1 / confX->Ld ) );
+
+          //          if (stateX->hfi_dir >= 0.5 * M_PI) {
+          //            D_axis_estimate = D_axis_estimate + M_PI;
+          //          }
+          //          else if (stateX->hfi_dir < -0.5 * M_PI) {
+          //            D_axis_estimate = D_axis_estimate - M_PI;
+          //          }
+
+          stateX->D_axis_delta = stateX->D_axis_estimate - stateX->D_axis_estimate_prev;
+          stateX->D_axis_estimate_prev = stateX->D_axis_estimate;
+
+          if (stateX->D_axis_delta > 0.5 * M_PI) {
+            stateX->D_axis_delta -= M_PI;
+          }
+          if (stateX->D_axis_delta < -0.5 * M_PI) {
+            stateX->D_axis_delta += M_PI;
+          }
+          stateX->D_axis_estimate_tot += stateX->D_axis_delta;
+
+          stateX->hfi_error_raw = stateX->D_axis_estimate_tot - stateX->hfi_dir;
+          //Make sure it is not 180 degrees off (180 degrees ambiguity)
+          //          while (stateX->hfi_error_raw >= 0.25 * M_PI) {
+          //            stateX->hfi_error_raw -= 0.5 * M_PI;
+          //          }
+          //          while (stateX->hfi_error_raw <= -0.25 * M_PI) {
+          //            stateX->hfi_error_raw += 0.5 * M_PI;
+          //          }
+          //stateX->Valpha_offset = stateX->hfi_V_act; TODO: HFI needs it's own variable.
+          stateX->hfi_V_act = 0;
+          break;
+        }
     }
+
+    // Skip first cycles, they do not have a complete delta current to calcualte hfi_error_raw.
+    if ( stateX->hfi_n_cycle < 4 ) {
+      stateX->hfi_error_raw = 0;
+      stateX->hfi_n_cycle += 1;
+    }
+
+    stateX->hfi_error = stateX->hfi_error_raw;
+    truncate_number( &stateX->hfi_error , -confX->hfi_truncate_rad , confX->hfi_truncate_rad); //Truncate can help to reduce outliers due to noise
+    LOWPASS( stateX->hfi_error_lp , stateX->hfi_error , confX->hfi_c_lowpass); // Lowpass (0.19 gives 2000 Hz at 60 kHz sampling: c = 1 - exp(-2000*2*pi*1/60000))
+
+    //Note: These 2 variables below are integrator states.
+    stateX->hfi_dir_int = stateX->hfi_dir_int + stateX->hfi_error_lp * stateX->hfi_gain_int2; //This the the double integrator. The output is a speed [erad/s].
+    stateX->hfi_contout = stateX->hfi_contout + motor.conf.T * (stateX->hfi_gain * stateX->hfi_error_lp + stateX->hfi_dir_int); //This is the main integrator. Output is the D axis rotor position w.r.t. alpha in [rad]. 
+
     utils_norm_angle_rad( &stateX->hfi_contout );
-
     stateX->hfi_dir = stateX->hfi_contout + stateX->dist * stateX->hfi_distgain;
+    //    if (stateX->hfi_method == 4) { // Even this doesn't work for method 4. Something seems to go unstable.
+    //      stateX->hfi_dir = stateX->D_axis_estimate_tot;
+    //    }
+
     utils_norm_angle_rad( &stateX->hfi_dir );
-    utils_norm_angle_rad( &stateX->hfi_dir_int );
+
+    // Update Prevent another cycle delay
+    if (confX->anglechoice == 3 ) {
+      stateX->co = cos(stateX->hfi_dir);
+      stateX->si = sin(stateX->hfi_dir);
+    }
   }
   else {
     stateX->hfi_dir = stateX->thetaPark_obs;
     stateX->hfi_contout = stateX->thetaPark_obs;
     stateX->hfi_dir_int = 0;
-    stateX->hfi_firstcycle = true;
     stateX->hfi_Id_meas_low = 0;
     stateX->hfi_Iq_meas_low = 0;
     stateX->hfi_Id_meas_high = 0;
     stateX->hfi_Iq_meas_high = 0;
     stateX->hfi_V_act = 0;
+    stateX->hfi_V_act_Q = 0;
+    stateX->hfi_n_cycle = 0;
   }
   stateX->hfi_prev = stateX->hfi_V;
 
@@ -829,6 +916,7 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     stateX->Vq += stateX->VSP;
     stateX->Vq += stateX->dist * stateX->Vq_distgain;
     stateX->Vq += stateX->hfi_V_act * stateX->compensation;
+    stateX->Vq += stateX->hfi_V_act_Q;
 
     stateX->Kp_id_out = confX->Kp_id * stateX->Id_e;
     stateX->vd_int_state += confX->Ki_id * motor.conf.T * stateX->Kp_id_out;
@@ -1310,12 +1398,22 @@ void error( int ierror ,  mot_state_t* stateX ) {
 
 // Functions below are borrowed from VESC firmware (with minor adjustments)
 
-static inline void utils_norm_angle_rad(float *angle) {
-	while (*angle < 0) { *angle += twoPI; }
-	while (*angle >=  twoPI) { *angle -= twoPI; }
+/**
+   Make sure that -pi <= angle < pi,
+*/
+static inline void utils_norm_angle_rad(float * angle) {
+  if (*angle < -M_PI) {
+    *angle += twoPI;
+  }
+  if (*angle >=  M_PI) {
+    *angle -= twoPI;
+  }
+  if ((*angle < -M_PI) or (*angle >=  M_PI)) {
+    error(1000 , &motor.state1); //This should never trigger
+  }
 }
 
-static inline void truncate_number(float *number, float min, float max) {
+static inline void truncate_number(float * number, float min, float max) {
   if (*number > max) {
     *number = max;
   } else if (*number < min) {
@@ -1331,7 +1429,7 @@ static inline void truncate_number_int(int *number, int min, int max) {
   }
 }
 
-static inline void truncate_number_abs(float *number, float max) {
+static inline void truncate_number_abs(float * number, float max) {
   if (*number > max) {
     *number = max;
   } else if (*number < -max) {
