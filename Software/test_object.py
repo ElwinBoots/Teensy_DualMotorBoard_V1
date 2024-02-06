@@ -30,6 +30,7 @@ z = ct.TransferFunction( [1, 0] , [1] , float(m.Ts))
 
 # Run code till here, and you will have the m and motor objects to work with 
 
+
 # %%
 # motor.conf1.Lq = 250e-6
 # motor.conf1.Ld = 210e-6
@@ -39,38 +40,38 @@ motor.state1.R = 0.33
 
 m.CL_cur( 0 )
 motor.conf1.ridethewave = 1
-motor.conf2.ridethewave = 1
+# motor.conf2.ridethewave = 1
 time.sleep(0.5)
 motor.conf1.commutationoffset = 0
-motor.conf2.commutationoffset = 0
+# motor.conf2.commutationoffset = 0
 
 motor.state1.Valpha_offset = 1
-motor.state2.Valpha_offset = 1
+# motor.state2.Valpha_offset = 1
 
 time.sleep(1)
 
 offset1 = motor.state1.thetaPark_enc
-offset2 = motor.state2.thetaPark_enc
+# offset2 = motor.state2.thetaPark_enc
 
 motor.state1.Valpha_offset = 0
-motor.state2.Valpha_offset = 0
+# motor.state2.Valpha_offset = 0
 motor.conf1.commutationoffset = -offset1
-motor.conf2.commutationoffset = -offset2
+# motor.conf2.commutationoffset = -offset2
 # Servo motor Wittenstein cyber MSSI 055G
-motor.conf1.Lambda_m = 0.01245
-motor.conf1.N_pp =  4
-motor.conf1.Lq = Lq
-motor.conf1.Ld = Ld
-motor.state1.R = R
+# motor.conf1.Lambda_m = 0.01245
+# motor.conf1.N_pp =  4
+# motor.conf1.Lq = Lq
+# motor.conf1.Ld = Ld
+# motor.state1.R = R
 
 # Servo motor Wittenstein cyber MSSI 055G  CONF2
-motor.conf2.Lambda_m = 0.01245
-motor.conf2.N_pp =  4
-motor.conf2.Lq = Lq
-motor.conf2.Ld = Ld
-motor.state2.R = R
+# motor.conf2.Lambda_m = 0.01245
+# motor.conf2.N_pp =  4
+# motor.conf2.Lq = Lq
+# motor.conf2.Ld = Ld
+# motor.state2.R = R
 
-m.CL_cur( 1.5e3 )
+# m.CL_cur( 1.5e3 )
 
 
 # %%
@@ -385,6 +386,208 @@ motor.state1.hfi_gain_int2 = 5*2*pi
 motor.state1.hfi_V = hfi_v
 motor.conf1.anglechoice = 3
 motor.state1.hfi_on = 1
+
+# %% CellularLINK pancake motor
+Ld = 18.26e-6
+Lq = 20.83e-6
+R = 0.0326
+N_pp = 21
+
+fluxlinkage = 0.00265
+m.setpar('motor.conf1.Lambda_m', fluxlinkage)
+m.setpar('motor.conf1.N_pp',  N_pp)
+m.setpar('motor.conf1.Lq', Lq)
+m.setpar('motor.conf1.Ld', Ld)
+m.setpar('motor.state1.R', R)
+
+m.CL_cur( 1500 , 1)
+
+# motor.conf1.Lambda_m = 0.02145
+motor.conf1.anglechoice = 1
+m.setpar('s1.hfi_on', 0)
+
+# %% CellularLINK pancake motor HFI
+m.setpar('s1.Id_offset_SP', 1)
+time.sleep(0.5)
+m.setpar('s1.Id_offset_SP', 0)
+
+motor.state1.hfi_method = 1
+
+Ki = 500*2*pi
+hfi_v = 2
+
+motor.state1.hfi_maxvel = 1e6
+motor.state1.hfi_gain = Ki
+motor.state1.hfi_gain_int2 = 5*2*pi
+motor.state1.hfi_V = hfi_v
+motor.conf1.anglechoice = 3
+motor.state1.hfi_on = 1
+
+# %% Maxon motor 469292
+Ld = 159.4e-6
+Lq = 167.2e-6
+R = 0.358
+N_pp = 8
+
+fluxlinkage = 0.0029
+m.setpar('motor.conf1.Lambda_m', fluxlinkage)
+m.setpar('motor.conf1.N_pp',  N_pp)
+m.setpar('motor.conf1.Lq', Lq)
+m.setpar('motor.conf1.Ld', Ld)
+m.setpar('motor.state1.R', R)
+
+m.CL_cur( 1500 , 1)
+
+# motor.conf1.Lambda_m = 0.02145
+motor.conf1.anglechoice = 1
+m.setpar('s1.hfi_on', 0)
+
+# %% Maxon motor 469292 (doens't work)
+m.setpar('s1.Id_offset_SP', 1)
+time.sleep(0.5)
+m.setpar('s1.Id_offset_SP', 0)
+
+motor.state1.hfi_method = 1
+
+Ki = 500*2*pi
+hfi_v = 5
+
+motor.state1.hfi_maxvel = 1e6
+motor.state1.hfi_gain = Ki
+motor.state1.hfi_gain_int2 = 5*2*pi
+motor.state1.hfi_V = hfi_v
+motor.conf1.anglechoice = 3
+motor.state1.hfi_on = 1
+
+motor.conf1.hfi_truncate_rad = 0.01  #This seems capable to reduce errors at speed?
+
+# %% Maxon motor 741160
+Ld = 160e-6
+Lq = 169e-6
+R = 0.62
+N_pp = 8
+
+fluxlinkage = 0.0026
+m.setpar('motor.conf1.Lambda_m', fluxlinkage)
+m.setpar('motor.conf1.N_pp',  N_pp)
+m.setpar('motor.conf1.Lq', Lq)
+m.setpar('motor.conf1.Ld', Ld)
+m.setpar('motor.state1.R', R)
+
+m.CL_cur( 500 , 1)
+
+motor.conf1.anglechoice = 1
+m.setpar('s1.hfi_on', 0)
+
+# %% Maxon motor 741160 
+m.setpar('s1.Id_offset_SP', 1)
+time.sleep(0.5)
+m.setpar('s1.Id_offset_SP', 0)
+
+motor.state1.hfi_method = 1
+
+Ki = 500*2*pi
+hfi_v = 6
+
+motor.state1.hfi_maxvel = 1e6
+motor.state1.hfi_gain = Ki
+motor.state1.hfi_gain_int2 = 5*2*pi
+motor.state1.hfi_V = hfi_v
+motor.conf1.anglechoice = 3
+motor.state1.hfi_on = 1
+
+motor.conf1.hfi_truncate_rad = 0.01  #This seems capable to reduce errors at speed?
+
+
+# %% Wittenstein cyber motor 2
+Ld = 182e-6
+Lq = 219e-6
+R = 0.31
+N_pp = 4
+
+fluxlinkage = 0.0123
+m.setpar('motor.conf2.Lambda_m', fluxlinkage)
+m.setpar('motor.conf2.N_pp',  N_pp)
+m.setpar('motor.conf2.Lq', Lq)
+m.setpar('motor.conf2.Ld', Ld)
+m.setpar('motor.state2.R', R)
+
+m.CL_cur( 2000 , 2)
+
+motor.conf2.anglechoice = 1
+m.setpar('s2.hfi_on', 0)
+
+# %% Wittenstein cyber motor HFI2
+m.setpar('s2.Id_offset_SP', 1)
+time.sleep(0.5)
+m.setpar('s2.Id_offset_SP', 0)
+
+motor.state2.hfi_method = 1
+
+Ki = 500*2*pi
+hfi_v = 6
+
+motor.state2.hfi_maxvel = 1e6
+motor.state2.hfi_gain = Ki
+motor.state2.hfi_gain_int2 = 20*2*pi
+motor.state2.hfi_V = hfi_v
+motor.conf2.anglechoice = 3
+motor.state2.hfi_on = 1
+
+motor.conf2.hfi_truncate_rad = 0.01  #This seems capable to reduce errors at speed?
+
+# %% Wittenstein cyber motor
+Ld = 178e-6
+Lq = 220e-6
+R = 0.31
+N_pp = 4
+
+fluxlinkage = 0.0123
+m.setpar('motor.conf1.Lambda_m', fluxlinkage)
+m.setpar('motor.conf1.N_pp',  N_pp)
+m.setpar('motor.conf1.Lq', Lq)
+m.setpar('motor.conf1.Ld', Ld)
+m.setpar('motor.state1.R', R)
+
+m.CL_cur( 2000 , 1)
+
+motor.conf1.anglechoice = 1
+m.setpar('s1.hfi_on', 0)
+
+# %% Wittenstein cyber motor HFI
+m.setpar('s1.Id_offset_SP', 1)
+time.sleep(0.5)
+m.setpar('s1.Id_offset_SP', 0)
+
+motor.state1.hfi_method = 1
+
+Ki = 500*2*pi
+hfi_v = 6
+
+motor.state1.hfi_maxvel = 1e6
+motor.state1.hfi_gain = Ki
+motor.state1.hfi_gain_int2 = 20*2*pi
+motor.state1.hfi_V = hfi_v
+motor.conf1.anglechoice = 3
+motor.state1.hfi_on = 1
+
+motor.conf1.hfi_truncate_rad = 0.01  #This seems capable to reduce errors at speed?
+
+
+# %%
+
+m.setTrace(['motor.state1.thetaPark_enc' , 'motor.state1.hfi_dir' , 'motor.state1.hfi_dir_int' , 'motor.state1.Iq_SP' , 'motor.state1.Iq_meas'])
+
+m.tracebg(1.5)
+time.sleep(0.1)
+m.setpar('motor.state1.Iq_offset_SP', 2)
+
+time.sleep(0.8)
+m.setpar('motor.state1.Iq_offset_SP', 0)
+time.sleep(0.6)
+
+df = m.stoptracegetdata()
+df.plot()
 
 # %%
 
@@ -1080,12 +1283,12 @@ m.setpar('motor.state1.i_vector_acc', 1e8)
 signals = ['motor.state1.BEMFa', 'motor.state1.BEMFb', 'motor.state.sensBus', 'motor.state1.Iq_meas', 'motor.state1.Id_meas',
            'motor.state1.Id_e', 'motor.state1.Iq_e', 's1.delta_id', 's1.delta_iq', 'motor.state1.thetaPark']
 m.setTrace(signals)
-Ldest_uH = []
-Lqest_uH = []
+# Ldest_uH = []
+# Lqest_uH = []
 
 # for hfi_v in [ 1 , 2 , 3 , 4  ]:
 # for hfi_v in [ 2 , 4 , 6 , 8 , 10 , 12 , 14  ]:
-for hfi_v in [ 2  ]:
+for hfi_v in [ 6  ]:
   m.setpar('s1.hfi_V', hfi_v)
   motor.state1.thetaPark = 0
   m.setpar('motor.state1.i_vector_radpers', 5*2*pi)

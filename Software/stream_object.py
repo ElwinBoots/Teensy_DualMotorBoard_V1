@@ -8,8 +8,8 @@ Created on Sat Oct  7 14:51:16 2023
 Fplayback = m.fs
 N_samples_per_write = 100
 bufsize = 10000
-musicgain1 = 12
-musicgain2 = 12
+musicgain1 = 4
+musicgain2 = 4
 
 import scipy
 import librosa
@@ -67,6 +67,8 @@ stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
 #%%
 fn_mp3 = os.path.join('music', 'onlymp3.to - Dr Dre - Still D R E ft Snoop Dogg-_CL6n0FJZpk-192k-1688323960.mp3')
 stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
+stream = stream[int(Fs)*20:]
+
 #%%
 fn_mp3 = os.path.join('music', '6 Million Subscribers. Thank you..mp3')
 stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
@@ -81,6 +83,12 @@ stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
 fn_mp3 = os.path.join('music', 'Eminem - The Real Slim Shady (Official Video - Dirty Version).mp3')
 stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
 
+#%%
+fn_mp3 = os.path.join('music', 'H.O.P.E. (Hold on Pain Ends).mp3')
+stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
+#%%
+fn_mp3 = os.path.join('music', 'Eminem - Godzilla ft. Juice WRLD (Directed by Cole Bennett).mp3')
+stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
 #%%
 
 if stream.ndim == 1:

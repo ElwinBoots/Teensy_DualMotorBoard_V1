@@ -597,7 +597,10 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
   stateX->Ibeta = ONE_BY_SQRT3 * stateX->ia + TWO_BY_SQRT3 * stateX->ib;
 
   // Park transform, ride the wave option
-  stateX->thetaPark_enc = confX->N_pp * (stateX->encoderPos1 % confX->enccountperrev) * confX->enc2rad + confX->commutationoffset; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
+  //stateX->thetaPark_enc = confX->N_pp * (stateX->encoderPos1 % confX->enccountperrev) * confX->enc2rad + confX->commutationoffset; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
+  stateX->thetaPark_enc = confX->N_pp * (stateX->encoderPos1 % (int)(confX->enccountperrev/confX->N_pp) ) * confX->enc2rad + confX->commutationoffset; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
+  //Not sure if this always can work. (confX->enccountperrev/confX->N_pp) needs to be an integer. The other variant has the angle go far outside the normal range.
+  
   if (confX->reversecommutation) {
     stateX->thetaPark_enc *= -1;
   }
@@ -712,9 +715,11 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
 
   stateX->Iq_SP += stateX->buffergain * stateX->streambuffer[ stateX->curbuffer ];
   stateX->Iq_SP += stateX->dist * stateX->Iq_distgain;
-  stateX->Iq_SP += stateX->Iq_offset_SP;
-
-  stateX->Id_SP = stateX->Id_offset_SP;
+  utils_step_towards( &stateX->Iq_offset_SP_ramp , stateX->Iq_offset_SP, 100.0 * motor.conf.T );
+  stateX->Iq_SP += stateX->Iq_offset_SP_ramp;
+  
+  utils_step_towards( &stateX->Id_offset_SP_ramp , stateX->Id_offset_SP, 100.0 * motor.conf.T );
+  stateX->Id_SP = stateX->Id_offset_SP_ramp;
   stateX->Id_SP += stateX->dist * stateX->Id_distgain;
 
   stateX->co = cos(stateX->thetaPark);
@@ -870,6 +875,7 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     //      stateX->hfi_dir = stateX->D_axis_estimate_tot;
     //    }
 
+    truncate_number_abs( &stateX->hfi_dir_int , fabsf(stateX->eradpers_lp) * 2 );
     utils_norm_angle_rad( &stateX->hfi_dir );
 
     // Update Prevent another cycle delay

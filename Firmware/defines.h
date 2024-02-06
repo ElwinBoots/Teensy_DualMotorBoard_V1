@@ -195,6 +195,8 @@ typedef struct mot_state_t {
   float VdFF;
   float Iq_offset_SP;
   float Id_offset_SP;
+  float Iq_offset_SP_ramp;
+  float Id_offset_SP_ramp;
   float Valpha_offset;
   float Vbeta_offset;
   float vq_int_state;
