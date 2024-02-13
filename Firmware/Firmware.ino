@@ -11,8 +11,8 @@
 
 Biquad *Biquads1[6];
 Biquad *Biquads2[6];
-MotionProfile *SPprofile1 = new MotionProfile( 0 , 0.0005 , 0.0193 , 0 , 3.14 , 157 , 7853 , 15632147 , 1 / (2 * F_PWM) );
-MotionProfile *SPprofile2 = new MotionProfile( 0 , 0.0005 , 0.0193 , 0 , 3.14 , 157 , 7853 , 15632147 , 1 / (2 * F_PWM) );
+MotionProfile *SPprofile1 = new MotionProfile( 0 , 0.0005 , 0.0193 , 0 , 3.14 , 157 , 7853 , 15632147 , 1 / (2.0f  * F_PWM) );
+MotionProfile *SPprofile2 = new MotionProfile( 0 , 0.0005 , 0.0193 , 0 , 3.14 , 157 , 7853 , 15632147 , 1 / (2.0f * F_PWM) );
 QuadEncoder Encoder1(1, 0, 1 , 0 , 3);   //Encoder 1 on pins 0 and 1, index on pin 3
 QuadEncoder Encoder2(2, 30, 31 , 0 , 33);//Encoder 2 on pins 30 and 31, index on pin 33
 
@@ -780,18 +780,20 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
         }
       case 2: // Inject in D, Full calculation. Note: full calculation doesn't really bring anything. For angle errors up to ~0.3 rad there is no difference.
         {
-          stateX->hfi_error_raw = -0.5f * atan2( -stateX->delta_iq  , stateX->delta_id - 0.5 * stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq + 1 / confX->Ld ) );
+          stateX->hfi_error_raw = -0.5f * atan2( -stateX->delta_iq  , stateX->delta_id - 0.5f * stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq + 1 / confX->Ld ) );
           break;
         }
       case 3: // Inject at 45 degrees, Linearized calculation
         {
           if (stateX->hfi_sign) {
             stateX->delta_i_parallel    = (stateX->delta_id + stateX->delta_iq) * ONE_BY_SQRT2;
-            stateX->hfi_error_raw = (stateX->delta_i_parallel - 0.5 * stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld + 1 / confX->Lq )) / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld - 1 / confX->Lq ) );
+//            stateX->hfi_error_raw = (stateX->delta_i_parallel - 0.5f * stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld + 1 / confX->Lq )) / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld - 1 / confX->Lq ) );
+            stateX->hfi_error_raw = (stateX->delta_i_parallel / (stateX->hfi_V * motor.conf.T) - ( 0.5f / confX->Ld + 0.5f / confX->Lq )) / ( 1 / confX->Ld - 1 / confX->Lq );
           }
           else {
             stateX->delta_i_parallel    = (stateX->delta_id - stateX->delta_iq) * ONE_BY_SQRT2;
-            stateX->hfi_error_raw = -(stateX->delta_i_parallel - 0.5 * stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld + 1 / confX->Lq )) / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld - 1 / confX->Lq ) );
+//            stateX->hfi_error_raw = -(stateX->delta_i_parallel - 0.5f * stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld + 1 / confX->Lq )) / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld - 1 / confX->Lq ) );
+            stateX->hfi_error_raw = -(stateX->delta_i_parallel / (stateX->hfi_V * motor.conf.T) - ( 0.5f / confX->Ld + 0.5f / confX->Lq )) / ( 1 / confX->Ld - 1 / confX->Lq );
           }
 
           stateX->hfi_V_act = stateX->hfi_V_act * ONE_BY_SQRT2;
@@ -821,22 +823,22 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
       case 4: // Inject in Alpha, Full calculation. Work in progress. Not working (yet?)
         {
           // Note: delta_id here is really delta_ialpha, and delta_iq is delta_ibeta.
-          stateX->D_axis_estimate = -0.5f * atan2( -stateX->delta_iq  , stateX->delta_id - 0.5 * stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq + 1 / confX->Ld ) );
+          stateX->D_axis_estimate = -0.5f * atan2( -stateX->delta_iq  , stateX->delta_id - 0.5f * stateX->hfi_V * motor.conf.T * ( 1 / confX->Lq + 1 / confX->Ld ) );
 
-          //          if (stateX->hfi_dir >= 0.5 * M_PI) {
+          //          if (stateX->hfi_dir >= 0.5f * M_PI) {
           //            D_axis_estimate = D_axis_estimate + M_PI;
           //          }
-          //          else if (stateX->hfi_dir < -0.5 * M_PI) {
+          //          else if (stateX->hfi_dir < -0.5f * M_PI) {
           //            D_axis_estimate = D_axis_estimate - M_PI;
           //          }
 
           stateX->D_axis_delta = stateX->D_axis_estimate - stateX->D_axis_estimate_prev;
           stateX->D_axis_estimate_prev = stateX->D_axis_estimate;
 
-          if (stateX->D_axis_delta > 0.5 * M_PI) {
+          if (stateX->D_axis_delta > 0.5f * M_PI) {
             stateX->D_axis_delta -= M_PI;
           }
-          if (stateX->D_axis_delta < -0.5 * M_PI) {
+          if (stateX->D_axis_delta < -0.5f * M_PI) {
             stateX->D_axis_delta += M_PI;
           }
           stateX->D_axis_estimate_tot += stateX->D_axis_delta;
@@ -844,10 +846,10 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
           stateX->hfi_error_raw = stateX->D_axis_estimate_tot - stateX->hfi_dir;
           //Make sure it is not 180 degrees off (180 degrees ambiguity)
           //          while (stateX->hfi_error_raw >= 0.25 * M_PI) {
-          //            stateX->hfi_error_raw -= 0.5 * M_PI;
+          //            stateX->hfi_error_raw -= 0.5f * M_PI;
           //          }
           //          while (stateX->hfi_error_raw <= -0.25 * M_PI) {
-          //            stateX->hfi_error_raw += 0.5 * M_PI;
+          //            stateX->hfi_error_raw += 0.5f * M_PI;
           //          }
           //stateX->Valpha_offset = stateX->hfi_V_act; TODO: HFI needs it's own variable.
           stateX->hfi_V_act = 0;
@@ -875,7 +877,7 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
     //      stateX->hfi_dir = stateX->D_axis_estimate_tot;
     //    }
 
-    truncate_number_abs( &stateX->hfi_dir_int , fabsf(stateX->eradpers_lp) * 2 );
+    truncate_number_abs( &stateX->hfi_dir_int , fabsf(stateX->eradpers_lp) * 2.0f  );
     utils_norm_angle_rad( &stateX->hfi_dir );
 
     // Update Prevent another cycle delay
@@ -1017,8 +1019,8 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
 
   // Inverse Power-variant Clarke transform
   stateX->Va = stateX->Valpha;
-  stateX->Vb = -0.5 * stateX->Valpha + SQRT3_by_2 * stateX->Vbeta;
-  stateX->Vc = -0.5 * stateX->Valpha - SQRT3_by_2 * stateX->Vbeta;
+  stateX->Vb = -0.5f * stateX->Valpha + SQRT3_by_2 * stateX->Vbeta;
+  stateX->Vc = -0.5f * stateX->Valpha - SQRT3_by_2 * stateX->Vbeta;
 
   //See https://microchipdeveloper.com/mct5001:start Zero Sequence Modulation Tutorial
   float Vcm = -(max(max(stateX->Va, stateX->Vb), stateX->Vc) + min(min(stateX->Va, stateX->Vb), stateX->Vc)) / 2;
@@ -1342,10 +1344,10 @@ void processSerialIn() {
         float notch_width;
         Serial.readBytes( (char*)&notch_width , 4);
         if (axis == 1) {
-          Biquads1[isignal]->setNotch( f0, debthdb, notch_width, 2 * F_PWM);
+          Biquads1[isignal]->setNotch( f0, debthdb, notch_width, 2.0f  * F_PWM);
         }
         else if (axis == 2) {
-          Biquads2[isignal]->setNotch( f0, debthdb, notch_width, 2 * F_PWM);
+          Biquads2[isignal]->setNotch( f0, debthdb, notch_width, 2.0f  * F_PWM);
         }
         break;
       }
@@ -1360,10 +1362,10 @@ void processSerialIn() {
         float damp;
         Serial.readBytes( (char*)&damp , 4);
         if (axis == 1) {
-          Biquads1[isignal]->setBiquad( bq_type_lowpass , f0, damp, 2 * F_PWM);
+          Biquads1[isignal]->setBiquad( bq_type_lowpass , f0, damp, 2.0f  * F_PWM);
         }
         else if (axis == 2) {
-          Biquads2[isignal]->setBiquad( bq_type_lowpass , f0, damp, 2 * F_PWM);
+          Biquads2[isignal]->setBiquad( bq_type_lowpass , f0, damp, 2.0f  * F_PWM);
         }
         break;
       }

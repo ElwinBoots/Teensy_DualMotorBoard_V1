@@ -9,7 +9,7 @@ Fplayback = m.fs
 N_samples_per_write = 100
 bufsize = 10000
 musicgain1 = 4
-musicgain2 = 4
+musicgain2 = 0
 
 import scipy
 import librosa
@@ -89,6 +89,12 @@ stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
 #%%
 fn_mp3 = os.path.join('music', 'Eminem - Godzilla ft. Juice WRLD (Directed by Cole Bennett).mp3')
 stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
+
+#%%
+fn_mp3 = os.path.join('music', 'We Live We Love We Lie.mp3')
+stream, Fs = librosa.load(fn_mp3, sr=Fplayback)
+
+
 #%%
 
 if stream.ndim == 1:

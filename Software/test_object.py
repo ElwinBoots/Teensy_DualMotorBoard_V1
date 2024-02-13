@@ -631,6 +631,8 @@ m.setpar('s1.hfi_V', hfi_v)
 m.setpar('c1.anglechoice', 3)
 m.setpar('s1.hfi_on', 1)
 
+motor.conf1.hfi_truncate_rad = 0.01
+
 #%%  
 m.setpar( 's1.hfi_useforfeedback' , 1)
 
