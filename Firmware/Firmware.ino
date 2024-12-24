@@ -597,10 +597,10 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
   stateX->Ibeta = ONE_BY_SQRT3 * stateX->ia + TWO_BY_SQRT3 * stateX->ib;
 
   // Park transform, ride the wave option
-  //stateX->thetaPark_enc = confX->N_pp * (stateX->encoderPos1 % confX->enccountperrev) * confX->enc2rad + confX->commutationoffset; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
-  stateX->thetaPark_enc = confX->N_pp * (stateX->encoderPos1 % (int)(confX->enccountperrev/confX->N_pp) ) * confX->enc2rad + confX->commutationoffset; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
+  stateX->thetaPark_enc = confX->N_pp * (stateX->encoderPos1 % confX->enccountperrev) * confX->enc2rad + confX->commutationoffset; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
+  //stateX->thetaPark_enc = confX->N_pp * (stateX->encoderPos1 % (int)(confX->enccountperrev / confX->N_pp) ) * confX->enc2rad + confX->commutationoffset; //Modulo on the encoder counts to keep the floating point 0 to 2pi for numerical accuracy
   //Not sure if this always can work. (confX->enccountperrev/confX->N_pp) needs to be an integer. The other variant has the angle go far outside the normal range.
-  
+
   if (confX->reversecommutation) {
     stateX->thetaPark_enc *= -1;
   }
@@ -1410,10 +1410,10 @@ void error( int ierror ,  mot_state_t* stateX ) {
    Make sure that -pi <= angle < pi,
 */
 static inline void utils_norm_angle_rad(float * angle) {
-  if (*angle < -M_PI) {
+  while (*angle < -M_PI) {
     *angle += twoPI;
   }
-  if (*angle >=  M_PI) {
+  while (*angle >=  M_PI) {
     *angle -= twoPI;
   }
   if ((*angle < -M_PI) or (*angle >=  M_PI)) {
