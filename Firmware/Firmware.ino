@@ -11,7 +11,7 @@
 
 Biquad *Biquads1[6];
 Biquad *Biquads2[6];
-MotionProfile *SPprofile1 = new MotionProfile( 0 , 0.0005 , 0.0193 , 0 , 3.14 , 157 , 7853 , 15632147 , 1 / (2.0f  * F_PWM) );
+MotionProfile *SPprofile1 = new MotionProfile( 0 , 0.0005 , 0.0193 , 0 , 3.14 , 157 , 7853 , 15632147 , 1 / (2.0f * F_PWM) );
 MotionProfile *SPprofile2 = new MotionProfile( 0 , 0.0005 , 0.0193 , 0 , 3.14 , 157 , 7853 , 15632147 , 1 / (2.0f * F_PWM) );
 QuadEncoder Encoder1(1, 0, 1 , 0 , 3);   //Encoder 1 on pins 0 and 1, index on pin 3
 QuadEncoder Encoder2(2, 30, 31 , 0 , 33);//Encoder 2 on pins 30 and 31, index on pin 33
@@ -66,8 +66,8 @@ void setup() {
 
   for (int i = 0; i < 6; i++)
   {
-    Biquads1[i] = new Biquad( bq_type_lowpass , 0 , 0.7, 2 * F_PWM);;
-    Biquads2[i] = new Biquad( bq_type_lowpass , 0 , 0.7, 2 * F_PWM);;
+    Biquads1[i] = new Biquad( bq_type_lowpass , 0 , 0.7, motor.conf.fs);;
+    Biquads2[i] = new Biquad( bq_type_lowpass , 0 , 0.7, motor.conf.fs);;
   }
 
   pinMode( ENGATE , OUTPUT);
@@ -515,7 +515,7 @@ void GenSetpoint( mot_conf_t* confX , mot_state_t* stateX , MotionProfile* SPpro
 
   stateX->rmech += stateX->rmechoffset;
 
-  stateX->acc = SPprofileX->aref + (stateX->offsetVel_lp - stateX->offsetVel_lp_prev) * F_PWM * 2;
+  stateX->acc = SPprofileX->aref + (stateX->offsetVel_lp - stateX->offsetVel_lp_prev) * motor.conf.fs;
   stateX->vel = SPprofileX->vref + stateX->offsetVel_lp;
   stateX->jerk = SPprofileX->jref;
 
@@ -717,7 +717,7 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
   stateX->Iq_SP += stateX->dist * stateX->Iq_distgain;
   utils_step_towards( &stateX->Iq_offset_SP_ramp , stateX->Iq_offset_SP, 100.0 * motor.conf.T );
   stateX->Iq_SP += stateX->Iq_offset_SP_ramp;
-  
+
   utils_step_towards( &stateX->Id_offset_SP_ramp , stateX->Id_offset_SP, 100.0 * motor.conf.T );
   stateX->Id_SP = stateX->Id_offset_SP_ramp;
   stateX->Id_SP += stateX->dist * stateX->Id_distgain;
@@ -787,12 +787,12 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
         {
           if (stateX->hfi_sign) {
             stateX->delta_i_parallel    = (stateX->delta_id + stateX->delta_iq) * ONE_BY_SQRT2;
-//            stateX->hfi_error_raw = (stateX->delta_i_parallel - 0.5f * stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld + 1 / confX->Lq )) / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld - 1 / confX->Lq ) );
+          //stateX->hfi_error_raw = (stateX->delta_i_parallel - 0.5f * stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld + 1 / confX->Lq )) / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld - 1 / confX->Lq ) );
             stateX->hfi_error_raw = (stateX->delta_i_parallel / (stateX->hfi_V * motor.conf.T) - ( 0.5f / confX->Ld + 0.5f / confX->Lq )) / ( 1 / confX->Ld - 1 / confX->Lq );
           }
           else {
             stateX->delta_i_parallel    = (stateX->delta_id - stateX->delta_iq) * ONE_BY_SQRT2;
-//            stateX->hfi_error_raw = -(stateX->delta_i_parallel - 0.5f * stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld + 1 / confX->Lq )) / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld - 1 / confX->Lq ) );
+            //stateX->hfi_error_raw = -(stateX->delta_i_parallel - 0.5f * stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld + 1 / confX->Lq )) / (stateX->hfi_V * motor.conf.T * ( 1 / confX->Ld - 1 / confX->Lq ) );
             stateX->hfi_error_raw = -(stateX->delta_i_parallel / (stateX->hfi_V * motor.conf.T) - ( 0.5f / confX->Ld + 0.5f / confX->Lq )) / ( 1 / confX->Ld - 1 / confX->Lq );
           }
 
@@ -869,7 +869,7 @@ void Transforms( mot_conf_t* confX , mot_state_t* stateX , Biquad **BiquadsX)
 
     //Note: These 2 variables below are integrator states.
     stateX->hfi_dir_int = stateX->hfi_dir_int + stateX->hfi_error_lp * stateX->hfi_gain_int2; //This the the double integrator. The output is a speed [erad/s].
-    stateX->hfi_contout = stateX->hfi_contout + motor.conf.T * (stateX->hfi_gain * stateX->hfi_error_lp + stateX->hfi_dir_int); //This is the main integrator. Output is the D axis rotor position w.r.t. alpha in [rad]. 
+    stateX->hfi_contout = stateX->hfi_contout + motor.conf.T * (stateX->hfi_gain * stateX->hfi_error_lp + stateX->hfi_dir_int); //This is the main integrator. Output is the D axis rotor position w.r.t. alpha in [rad].
 
     utils_norm_angle_rad( &stateX->hfi_contout );
     stateX->hfi_dir = stateX->hfi_contout + stateX->dist * stateX->hfi_distgain;
@@ -1206,7 +1206,24 @@ void processCommands( mot_conf_t* confX ,  mot_state_t* stateX ) {
         confX->Command = NO_COMMAND;
         break;
       }
-
+    case UPDATE_V0V7:
+      {
+        if (motor.conf.use_v7) {
+          motor.conf.Ts = 1e6 / (2 * F_PWM);
+          motor.conf.fs = 2 * F_PWM;
+          //This triggers twice per PWM cycle:
+          FLEXPWM2_SM0TCTRL = FLEXPWM_SMTCTRL_OUT_TRIG_EN(1 << 4) | FLEXPWM_SMTCTRL_OUT_TRIG_EN(1 << 5); //  val 4 of Flexpwm sm0 as trigger; #define FLEXPWM_SMTCTRL_OUT_TRIG_EN(n)   ((uint16_t)(((n) & 0x3F) << 0))
+        }
+        else {
+          motor.conf.Ts = 1e6 / F_PWM;
+          motor.conf.fs = F_PWM;
+          //This triggers once per PWM cycle:
+          FLEXPWM2_SM0TCTRL = FLEXPWM_SMTCTRL_OUT_TRIG_EN(1 << 5); //  val 4 of Flexpwm sm0 as trigger; #define FLEXPWM_SMTCTRL_OUT_TRIG_EN(n)   ((uint16_t)(((n) & 0x3F) << 0))
+        }
+        motor.conf.T = motor.conf.Ts / 1e6;
+        confX->Command = NO_COMMAND;
+        break;
+      }
   }
 }
 
@@ -1344,10 +1361,10 @@ void processSerialIn() {
         float notch_width;
         Serial.readBytes( (char*)&notch_width , 4);
         if (axis == 1) {
-          Biquads1[isignal]->setNotch( f0, debthdb, notch_width, 2.0f  * F_PWM);
+          Biquads1[isignal]->setNotch( f0, debthdb, notch_width, motor.conf.fs);
         }
         else if (axis == 2) {
-          Biquads2[isignal]->setNotch( f0, debthdb, notch_width, 2.0f  * F_PWM);
+          Biquads2[isignal]->setNotch( f0, debthdb, notch_width, motor.conf.fs);
         }
         break;
       }
@@ -1362,10 +1379,10 @@ void processSerialIn() {
         float damp;
         Serial.readBytes( (char*)&damp , 4);
         if (axis == 1) {
-          Biquads1[isignal]->setBiquad( bq_type_lowpass , f0, damp, 2.0f  * F_PWM);
+          Biquads1[isignal]->setBiquad( bq_type_lowpass , f0, damp, motor.conf.fs);
         }
         else if (axis == 2) {
-          Biquads2[isignal]->setBiquad( bq_type_lowpass , f0, damp, 2.0f  * F_PWM);
+          Biquads2[isignal]->setBiquad( bq_type_lowpass , f0, damp, motor.conf.fs);
         }
         break;
       }

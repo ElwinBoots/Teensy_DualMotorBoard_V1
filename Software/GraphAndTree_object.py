@@ -19,8 +19,9 @@
 # motor = tc.MotorVariables( m )
 
 #%%
-maxdata = 2001
-Tsample = 0.01
+maxdata = 1001
+Tsample = 0.01001
+# Tsample = 0.01
 
 class CustomViewBox(pg.ViewBox):
     def __init__(self, *args, **kwds):
@@ -99,6 +100,7 @@ curve1c = plot1.plot(pen=pg.mkPen(color=col[2], width=width))
 curve1d = plot1.plot(pen=pg.mkPen(color=col[3], width=width))
 curve2a = plot2.plot(pen=pg.mkPen(color=col[0], width=width))
 curve2b = plot2.plot(pen=pg.mkPen(color=col[1], width=width))
+curve2c = plot2.plot(pen=pg.mkPen(color=col[2], width=width))
 curve3a = plot3.plot(pen=pg.mkPen(color=col[0], width=width))
 curve3b = plot3.plot(pen=pg.mkPen(color=col[1], width=width))
 curve3c = plot3.plot(pen=pg.mkPen(color=col[2], width=width))
@@ -125,26 +127,29 @@ y1c = deque(maxlen=maxdata)
 y1d = deque(maxlen=maxdata)
 y2a = deque(maxlen=maxdata)
 y2b = deque(maxlen=maxdata)
+y2c = deque(maxlen=maxdata)
 y3a = deque(maxlen=maxdata)
 y3b = deque(maxlen=maxdata)
 y3c = deque(maxlen=maxdata)
 
-def update(data1 , data2 , data3, data4 , data5 , data6 , data7 , data8 , data9 ):
+def update(data1 , data2 , data3, data4 , data5 , data6 , data7 , data8 , data9 , data10 ):
     y1a.extend( [data1] )
     y1b.extend( [data2] )
     y1c.extend( [data3] )
     y1d.extend( [data4] )
     y2a.extend( [data5] )
     y2b.extend( [data6] )
-    y3a.extend( [data7] )
-    y3b.extend( [data8] )
-    y3c.extend( [data9] )
+    y2c.extend( [data7] )
+    y3a.extend( [data8] )
+    y3b.extend( [data9] )
+    y3c.extend( [data10] )
     curve1a.setData( x = np.linspace(0, (len(y1a)-1) * Tsample , len(y1a)) , y=y1a)
     curve1b.setData( x = np.linspace(0, (len(y1b)-1) * Tsample , len(y1b)) , y=y1b)
     curve1c.setData( x = np.linspace(0, (len(y1c)-1) * Tsample , len(y1c)) , y=y1c)
     curve1d.setData( x = np.linspace(0, (len(y1d)-1) * Tsample , len(y1d)) , y=y1d)
     curve2a.setData( x = np.linspace(0, (len(y2a)-1) * Tsample , len(y2a)) ,y=y2a)
     curve2b.setData( x = np.linspace(0, (len(y2b)-1) * Tsample , len(y2b)) ,y=y2b)
+    curve2c.setData( x = np.linspace(0, (len(y2c)-1) * Tsample , len(y2c)) ,y=y2c)
     curve3a.setData( x = np.linspace(0, (len(y3a)-1) * Tsample , len(y3a)) ,y=y3a)
     curve3b.setData( x = np.linspace(0, (len(y3b)-1) * Tsample , len(y3b)) ,y=y3b)
     curve3c.setData( x = np.linspace(0, (len(y3c)-1) * Tsample , len(y3c)) ,y=y3c)
@@ -173,7 +178,7 @@ class Thread(pg.QtCore.QThread):
         m.ser.write(b'b' + struct.pack('I',  int(2**32-1)))  
 
     # newData = pg.QtCore.Signal(object)
-    newData = pg.QtCore.Signal(float , float , float , float , float , float, float , float, float)
+    newData = pg.QtCore.Signal(float , float , float , float , float , float, float , float, float, float)
     def run(self):
         while not self.ready:
             pass
@@ -183,7 +188,7 @@ class Thread(pg.QtCore.QThread):
             m.ser.readinto(self.buffer)
             arr = np.ndarray(1, dtype=self.dtypestrace,  buffer=self.buffer)
             # self.newData.emit( self.arr[0][0] , self.arr[0][1] , self.arr[0][2] , self.arr[0][3]  , self.arr[0][4] , self.arr[0][5]  ) # <- Here you emit a signal!
-            self.newData.emit(arr[0][0],arr[0][1],arr[0][2],arr[0][3],arr[0][4],arr[0][5],arr[0][6],arr[0][7],arr[0][8] )
+            self.newData.emit(arr[0][0],arr[0][1],arr[0][2],arr[0][3],arr[0][4],arr[0][5],arr[0][6],arr[0][7],arr[0][8] , arr[0][9])
             # self.newData.emit( self.arr[0] ) # <- Here you emit a signal!
             # print( self.arr[0][0] )
         self.stopdata()
@@ -417,7 +422,9 @@ thread.start()
 
 
 
-thread.startdata( [ 'motor.state1.Id_SP', 'motor.state1.Iq_SP', 'motor.state1.Id_meas', 'motor.state1.Iq_meas', 'motor.state1.encoderPos1', 'motor.state2.encoderPos1','motor.state1.Vd','motor.state1.Vq','motor.state1.maxVolt'] )
+# thread.startdata( [ 'motor.state1.Id_SP', 'motor.state1.Iq_SP', 'motor.state1.Id_meas', 'motor.state1.Iq_meas', 'motor.state1.encoderPos1', 'motor.state2.encoderPos1','motor.state1.Vd','motor.state1.Vq','motor.state1.maxVolt'] )
+# thread.startdata( [ 'motor.state1.Id_SP', 'motor.state1.Iq_SP', 'motor.state1.Id_meas', 'motor.state1.Iq_meas', 'motor.state1.ia', 'motor.state1.ib', 'motor.state1.ic','motor.state1.Va','motor.state1.Vb','motor.state1.Vc'] )
+thread.startdata( [ 'motor.state1.delta_id', 'motor.state1.delta_iq', 'motor.state1.delta_i_orthogonal', 'motor.state1.delta_i_parallel', 'motor.state1.rmech', 'motor.state1.ymech', 'motor.state2.ymech','motor.state1.Va','motor.state1.Vb','motor.state1.Vc'] )
 # thread.startdata( [ 'motor.state1.Iq_SP', 'motor.state2.Iq_SP', 'motor.state1.Iq_meas', 'motor.state2.Iq_meas', 'motor.state1.rmech', 'motor.state1.ymech','motor.state1.Vd','motor.state1.Vq','motor.state1.maxVolt'] )
 
 

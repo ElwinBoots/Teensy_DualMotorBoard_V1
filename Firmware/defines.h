@@ -16,6 +16,7 @@
 #define ONE_BY_SQRT2    0.70710678118654752440084436210484903
 
 #define F_PWM 24e3
+//#define F_PWM 48e3
 #define CHOPPERPIN 33 //Digital output for chopper resistor
 #define DEBUGPIN 32
 #define ENGATE  34
@@ -35,7 +36,8 @@ enum commands {
   UPDATE_CONTROLLER = 1,
   RESET_ERROR = 2,
   MOVE_BOTH_POS = 3,
-  MOVE_BOTH_NEG = 4
+  MOVE_BOTH_NEG = 4,
+  UPDATE_V0V7 = 5
 };
 
 typedef struct mot_conf_t {
@@ -310,8 +312,7 @@ typedef struct conf_t {
   float ss_fstep;
   float ss_fend;
   unsigned int ss_n_aver;
-  
-  float test1[3];
+  bool use_v7;
 } conf_t;
 
 typedef struct motor_total_t {
